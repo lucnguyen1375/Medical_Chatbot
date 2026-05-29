@@ -1,0 +1,71 @@
+server:
+  port: 8080
+  tomcat:
+    relaxed-query-chars: "|"
+
+management:
+  endpoints:
+    enabled-by-default: false
+    web:
+      exposure:
+        include: "health"
+  endpoint:
+    health:
+      enabled: true
+      probes:
+        enabled: true
+
+spring:
+  application:
+    name: medical-chatbot-hapi-fhir
+  main:
+    allow-circular-references: true
+    banner-mode: off
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.elasticsearch.ElasticsearchRestClientAutoConfiguration
+  flyway:
+    enabled: false
+    baseline-on-migrate: true
+    fail-on-missing-locations: false
+  datasource:
+    url: jdbc:postgresql://postgres:5432/hapi
+    username: admin
+    password: admin
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+  jpa:
+    properties:
+      hibernate:
+        dialect: ca.uhn.fhir.jpa.model.dialect.HapiFhirPostgresDialect
+        format_sql: false
+        show_sql: false
+        hbm2ddl:
+          auto: update
+        jdbc:
+          batch_size: 20
+        cache:
+          use_query_cache: false
+          use_second_level_cache: false
+          use_structured_entries: false
+          use_minimal_puts: false
+
+hapi:
+  fhir:
+    fhir_version: R4
+    default_encoding: json
+    openapi_enabled: true
+    server_address: http://localhost:8080/fhir
+    narrative_enabled: false
+    enforce_referential_integrity_on_write: true
+    enforce_referential_integrity_on_delete: true
+    cors:
+      allow_Credentials: false
+      allowed_origin:
+        - "*"
+    tester:
+      home:
+        name: Local HAPI FHIR
+        server_address: http://localhost:8080/fhir
+        refuse_to_fetch_third_party_urls: false
+        fhir_version: R4
