@@ -1,0 +1,25 @@
+from functools import lru_cache
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    app_name: str = "Medical Chatbot Service"
+    fhir_base_url: str = Field(default="http://localhost:8080/fhir")
+    fhir_request_timeout_seconds: float = Field(default=20)
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    @property
+    def normalized_fhir_base_url(self) -> str:
+        return self.fhir_base_url.rstrip("/")
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

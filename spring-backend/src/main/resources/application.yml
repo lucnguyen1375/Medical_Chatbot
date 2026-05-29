@@ -1,0 +1,16 @@
+spring:
+  application:
+    name: spring-backend
+
+server:
+  port: 8081
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+chatbot:
+  service:
+    base-url: http://localhost:8000
