@@ -3,6 +3,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
+from agents.answer_generator import AnswerGenerator, combine_usage, get_answer_generator
 from agents.intent_extractor import (
     CONDITION_KEYWORDS,
     MEDICATION_KEYWORDS,
@@ -47,6 +48,7 @@ async def chat(
     request: ChatRequest,
     client: FhirClient = Depends(get_fhir_client),
     intent_extractor: IntentExtractor = Depends(get_intent_extractor),
+    answer_generator: AnswerGenerator = Depends(get_answer_generator),
 ) -> dict[str, Any]:
     plan = await intent_extractor.extract(
         request.message,
@@ -55,34 +57,68 @@ async def chat(
 
     try:
         if plan.tool_name == TOOL_SEARCH_PATIENTS:
-            return _with_plan_metadata(await _answer_patients(client, plan.limit), plan)
+            return await _finalize_chat_response(
+                await _answer_patients(client, plan.limit),
+                request.message,
+                plan,
+                answer_generator,
+            )
         if plan.tool_name == TOOL_GET_MEDICATIONS:
             if plan.all_patients:
-                return _with_plan_metadata(await _answer_all_patient_medications(client, plan.limit), plan)
-            return _with_plan_metadata(await _answer_medications(client, plan.patient_id, plan.limit), plan)
+                return await _finalize_chat_response(
+                    await _answer_all_patient_medications(client, plan.limit),
+                    request.message,
+                    plan,
+                    answer_generator,
+                )
+            return await _finalize_chat_response(
+                await _answer_medications(client, plan.patient_id, plan.limit),
+                request.message,
+                plan,
+                answer_generator,
+            )
         if plan.tool_name == TOOL_GET_OBSERVATIONS:
             if plan.all_patients:
-                return _with_plan_metadata(
+                return await _finalize_chat_response(
                     await _answer_all_patient_observations(client, plan.limit, plan.observation_type),
+                    request.message,
                     plan,
+                    answer_generator,
                 )
-            return _with_plan_metadata(
+            return await _finalize_chat_response(
                 await _answer_observations(client, plan.patient_id, plan.limit, plan.observation_type),
+                request.message,
                 plan,
+                answer_generator,
             )
         if plan.tool_name == TOOL_GET_CONDITIONS:
             if plan.all_patients:
-                return _with_plan_metadata(await _answer_all_patient_conditions(client, plan.limit), plan)
-            return _with_plan_metadata(await _answer_conditions(client, plan.patient_id, plan.limit), plan)
+                return await _finalize_chat_response(
+                    await _answer_all_patient_conditions(client, plan.limit),
+                    request.message,
+                    plan,
+                    answer_generator,
+                )
+            return await _finalize_chat_response(
+                await _answer_conditions(client, plan.patient_id, plan.limit),
+                request.message,
+                plan,
+                answer_generator,
+            )
         if plan.tool_name == TOOL_GET_PATIENT:
-            return _with_plan_metadata(await _answer_patient(client, plan.patient_id), plan)
+            return await _finalize_chat_response(
+                await _answer_patient(client, plan.patient_id),
+                request.message,
+                plan,
+                answer_generator,
+            )
     except FhirClientError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=exc.user_message,
         ) from exc
 
-    return {
+    payload = {
         "answer": (
             "Tôi chưa xác định được cần lấy loại dữ liệu FHIR nào. "
             "Bạn có thể hỏi về thông tin bệnh nhân, chỉ số/xét nghiệm, chẩn đoán hoặc thuốc, "
@@ -96,6 +132,7 @@ async def chat(
         "intent_source": plan.source,
         "intent_reason": plan.reason,
     }
+    return await _finalize_chat_response(payload, request.message, plan, answer_generator)
 
 
 async def _answer_patients(client: FhirClient, limit: int) -> dict[str, Any]:
@@ -460,6 +497,31 @@ def _zero_usage() -> dict[str, int | float]:
         "output_tokens": 0,
         "estimated_cost_usd": 0,
     }
+
+
+async def _finalize_chat_response(
+    payload: dict[str, Any],
+    question: str,
+    plan: IntentPlan,
+    answer_generator: AnswerGenerator,
+) -> dict[str, Any]:
+    payload = _with_plan_metadata(payload, plan)
+    template_answer = payload.get("answer") or ""
+    answer_result = await answer_generator.generate(
+        question=question,
+        intent=payload.get("intent") or plan.intent,
+        tool_name=plan.tool_name,
+        patient_id=payload.get("patient_id") or plan.patient_id,
+        evidence=payload.get("evidence") or [],
+        fallback_answer=template_answer,
+    )
+    payload["answer"] = answer_result.answer
+    payload["answer_source"] = answer_result.source
+    payload["answer_usage"] = answer_result.usage
+    if answer_result.reason:
+        payload["answer_reason"] = answer_result.reason
+    payload["usage"] = combine_usage(plan.usage, answer_result.usage)
+    return payload
 
 
 def _with_plan_metadata(payload: dict[str, Any], plan: IntentPlan) -> dict[str, Any]:

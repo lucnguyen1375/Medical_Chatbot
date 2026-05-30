@@ -19,6 +19,12 @@ public record ChatResponse(
         @JsonProperty("intent_source")
         String intentSource,
 
+        @JsonProperty("answer_source")
+        String answerSource,
+
+        @JsonProperty("answer_reason")
+        String answerReason,
+
         @JsonProperty("patient_id")
         String patientId,
 
@@ -29,6 +35,9 @@ public record ChatResponse(
         Boolean allPatients,
 
         JsonNode evidence,
+
+        @JsonProperty("answer_usage")
+        JsonNode answerUsage,
 
         JsonNode usage
 ) {

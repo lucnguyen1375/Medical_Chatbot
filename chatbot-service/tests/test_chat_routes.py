@@ -1,6 +1,13 @@
 import unittest
 
-from api.chat_routes import _detect_intent, _observation_matches_type, _resolve_patient_id, ChatRequest
+from api.chat_routes import (
+    _detect_intent,
+    _finalize_chat_response,
+    _observation_matches_type,
+    _resolve_patient_id,
+    ChatRequest,
+)
+from agents.answer_generator import AnswerResult
 from agents.intent_extractor import (
     IntentPlan,
     TOOL_GET_CONDITIONS,
@@ -16,6 +23,15 @@ from agents.intent_extractor import (
     enforce_contact_detail_routing,
     plan_from_tool_call,
 )
+
+
+class FakeAnswerGenerator:
+    async def generate(self, **kwargs):
+        return AnswerResult(
+            answer=f"LLM: {kwargs['fallback_answer']}",
+            source="llm",
+            usage={"input_tokens": 20, "output_tokens": 5, "estimated_cost_usd": 0.01},
+        )
 
 
 class ChatRoutesTests(unittest.TestCase):
@@ -75,6 +91,34 @@ class ChatRoutesTests(unittest.TestCase):
 
 
 class IntentExtractorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_finalize_chat_response_adds_llm_answer_metadata_and_combined_usage(self) -> None:
+        payload = {
+            "answer": "Template answer",
+            "intent": "observations",
+            "patient_id": "demo-patient-003",
+            "evidence": [{"resource_type": "Observation", "id": "obs-1", "summary": "HbA1c"}],
+            "usage": {"input_tokens": 0, "output_tokens": 0, "estimated_cost_usd": 0},
+        }
+        plan = IntentPlan(
+            tool_name=TOOL_GET_OBSERVATIONS,
+            patient_id="demo-patient-003",
+            source="llm",
+            usage={"input_tokens": 10, "output_tokens": 3, "estimated_cost_usd": 0},
+        )
+
+        result = await _finalize_chat_response(
+            payload,
+            "hba1c cua benh nhan 003",
+            plan,
+            FakeAnswerGenerator(),
+        )
+
+        self.assertEqual(result["answer"], "LLM: Template answer")
+        self.assertEqual(result["answer_source"], "llm")
+        self.assertEqual(result["answer_usage"]["input_tokens"], 20)
+        self.assertEqual(result["usage"]["input_tokens"], 30)
+        self.assertEqual(result["tool_name"], TOOL_GET_OBSERVATIONS)
+
     async def test_rule_based_extractor_returns_fhir_tool_plan(self) -> None:
         plan = await RuleBasedIntentExtractor().extract(
             "What medications is Patient/demo-patient-001 taking?"

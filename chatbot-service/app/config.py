@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     llm_model: str = Field(default="gpt-4.1-mini")
     openai_api_key: str | None = Field(default=None)
     llm_request_timeout_seconds: float = Field(default=20)
+    enable_llm_answer: bool = Field(default=True)
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -26,6 +27,10 @@ class Settings(BaseSettings):
     @property
     def use_openai_llm(self) -> bool:
         return self.llm_provider.lower() == "openai" and bool(self.openai_api_key)
+
+    @property
+    def use_llm_answer(self) -> bool:
+        return self.enable_llm_answer and self.use_openai_llm
 
 
 @lru_cache

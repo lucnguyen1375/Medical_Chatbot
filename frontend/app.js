@@ -11,6 +11,7 @@ const sampleObservation = document.querySelector("#sampleObservation");
 
 const sessionId = document.querySelector("#sessionId");
 const intent = document.querySelector("#intent");
+const answerSource = document.querySelector("#answerSource");
 const toolName = document.querySelector("#toolName");
 const responsePatient = document.querySelector("#responsePatient");
 const responseScope = document.querySelector("#responseScope");
@@ -244,6 +245,7 @@ function parsePatientLine(text) {
 function renderDetails(data) {
   sessionId.textContent = data.session_id || "-";
   intent.textContent = data.intent || "-";
+  answerSource.textContent = data.answer_source || "-";
   toolName.textContent = data.tool_name || "-";
   responsePatient.textContent = data.patient_id || "-";
   responseScope.textContent = data.all_patients ? "Tất cả bệnh nhân" : "Một bệnh nhân";

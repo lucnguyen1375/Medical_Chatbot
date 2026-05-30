@@ -13,16 +13,16 @@ Implemented:
 - `POST /chat` endpoint for patient, observation, condition, and medication questions.
 - OpenAI tool/function calling intent extraction when `OPENAI_API_KEY` is configured.
 - Rule-based fallback intent extraction for local demos without an LLM API key.
+- LLM final answer generation from normalized FHIR evidence when `ENABLE_LLM_ANSWER=true`.
+- Template fallback answer generation when LLM answer generation is disabled or fails.
 - Central FHIR HTTP client using HAPI FHIR REST APIs.
 - Normalizers that convert raw FHIR resources/Bundles into compact JSON for app and future LLM usage.
 - Unit tests for normalizers, FHIR client behavior with mocked HTTP transport, and intent extraction behavior.
 
 Not implemented yet:
 
-- Final LLM answer generation after FHIR tool execution.
 - Real cost estimation from token usage.
 - Authentication/access control.
-- Frontend integration.
 
 ## Main Rule
 
@@ -87,6 +87,24 @@ unsupported_question
 
 Without `OPENAI_API_KEY`, `RuleBasedIntentExtractor` keeps local demo behavior working.
 
+## Answer Generation
+
+After FHIR retrieval, `agents/answer_generator.py` receives:
+
+```text
+question + intent + tool_name + patient_id + evidence.data + fallback_answer
+```
+
+If OpenAI answer generation is enabled, the model writes the final Vietnamese answer using only the normalized evidence. It must not invent patient data, create new diagnoses, or query any data source. If the LLM call fails or evidence is empty, the service returns the template answer.
+
+Relevant response fields:
+
+```text
+answer_source: llm | template | template_fallback | template_no_evidence
+answer_usage: token usage for answer generation only
+usage: combined intent + answer usage
+```
+
 ## Evidence Shape
 
 Chat responses now keep both a compact summary and detailed normalized FHIR data:
@@ -115,7 +133,7 @@ The normalizer preserves detailed fields for Patient, Encounter, Observation, Co
 Last checked on 2026-05-30:
 
 ```text
-python -m unittest discover tests: 34 tests passed
+python -m unittest discover tests: 38 tests passed
 python -m compileall app api agents fhir tests: passed
 app import: passed
 GET /health: passed
@@ -128,4 +146,6 @@ POST /chat medication demo: passed
 LLM/tool-call intent extraction fallback: passed
 Chatbot service dev server: http://localhost:8000
 Detailed evidence passthrough via POST /chat: passed
+LLM final answer via POST /chat: passed
+Spring passthrough of answer_source and answer_usage: passed
 ```

@@ -67,10 +67,19 @@ class ChatbotControllerTest {
                         "medications",
                         "get_medication_requests",
                         "llm",
+                        "llm",
+                        null,
                         "demo-patient-001",
                         null,
                         null,
                         objectMapper.readTree("[]"),
+                        objectMapper.readTree("""
+                                {
+                                  "input_tokens": 0,
+                                  "output_tokens": 0,
+                                  "estimated_cost_usd": 0
+                                }
+                                """),
                         objectMapper.readTree("""
                                 {
                                   "input_tokens": 0,
@@ -93,6 +102,7 @@ class ChatbotControllerTest {
                 .andExpect(jsonPath("$.intent").value("medications"))
                 .andExpect(jsonPath("$.tool_name").value("get_medication_requests"))
                 .andExpect(jsonPath("$.intent_source").value("llm"))
+                .andExpect(jsonPath("$.answer_source").value("llm"))
                 .andExpect(jsonPath("$.patient_id").value("demo-patient-001"));
     }
 }

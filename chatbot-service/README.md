@@ -25,20 +25,21 @@ Override it with:
 $env:FHIR_BASE_URL="http://localhost:8080/fhir"
 ```
 
-## LLM Intent Extraction
+## LLM Intent And Answer Generation
 
 The chat endpoint extracts a FHIR tool plan before calling HAPI FHIR.
 
-Set these variables in `chatbot-service/.env` to enable OpenAI tool calling:
+Set these variables in `chatbot-service/.env` to enable OpenAI tool calling and final answer generation:
 
 ```env
 LLM_PROVIDER=openai
 LLM_MODEL=gpt-4.1-mini
 OPENAI_API_KEY=replace_me
 LLM_REQUEST_TIMEOUT_SECONDS=20
+ENABLE_LLM_ANSWER=true
 ```
 
-If `OPENAI_API_KEY` is missing, the service automatically uses a local rule-based extractor so demos still run.
+If `OPENAI_API_KEY` is missing, the service automatically uses a local rule-based extractor and template answer fallback so demos still run.
 
 Supported tool plans:
 
@@ -49,6 +50,8 @@ get_conditions
 get_medication_requests
 unsupported_question
 ```
+
+After FHIR retrieval, `agents/answer_generator.py` can call the LLM again with only the normalized `evidence.data` payload. The LLM does not query FHIR or PostgreSQL directly.
 
 ## Endpoints
 
@@ -77,7 +80,7 @@ $body = @{
 Invoke-RestMethod -Uri "http://localhost:8000/chat" -Method Post -ContentType "application/json" -Body $body
 ```
 
-The response includes `tool_name` and `intent_source`. `intent_source` is `llm` when OpenAI tool calling is used, otherwise `rules`.
+The response includes `tool_name`, `intent_source`, `answer_source`, `answer_usage`, and combined `usage`. `answer_source` is `llm` when OpenAI writes the final answer, otherwise `template` or `template_fallback`.
 
 ## Tests
 
