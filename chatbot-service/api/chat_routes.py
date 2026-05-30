@@ -6,12 +6,14 @@ from pydantic import BaseModel, Field
 from agents.answer_generator import AnswerGenerator, combine_usage, get_answer_generator
 from agents.intent_extractor import (
     CONDITION_KEYWORDS,
+    ENCOUNTER_KEYWORDS,
     MEDICATION_KEYWORDS,
     OBSERVATION_KEYWORDS,
     PATIENT_CONTACT_KEYWORDS,
     PATIENT_INFO_KEYWORDS,
     PATIENT_LIST_KEYWORDS,
     TOOL_GET_CONDITIONS,
+    TOOL_GET_ENCOUNTERS,
     TOOL_GET_MEDICATIONS,
     TOOL_GET_OBSERVATIONS,
     TOOL_GET_PATIENT,
@@ -26,6 +28,7 @@ from agents.intent_extractor import (
 from fhir.client import FhirClient, FhirClientError, get_fhir_client
 from fhir.normalizer import (
     normalize_condition_bundle,
+    normalize_encounter_bundle,
     normalize_medication_request_bundle,
     normalize_observation_bundle,
     normalize_patient,
@@ -73,6 +76,20 @@ async def chat(
                 )
             return await _finalize_chat_response(
                 await _answer_medications(client, plan.patient_id, plan.limit),
+                request.message,
+                plan,
+                answer_generator,
+            )
+        if plan.tool_name == TOOL_GET_ENCOUNTERS:
+            if plan.all_patients:
+                return await _finalize_chat_response(
+                    await _answer_all_patient_encounters(client, plan.limit),
+                    request.message,
+                    plan,
+                    answer_generator,
+                )
+            return await _finalize_chat_response(
+                await _answer_encounters(client, plan.patient_id, plan.limit),
                 request.message,
                 plan,
                 answer_generator,
@@ -279,6 +296,79 @@ async def _answer_observations(
     }
 
 
+async def _answer_all_patient_encounters(client: FhirClient, limit: int) -> dict[str, Any]:
+    patients = await _get_patients(client, limit=20)
+    summaries = []
+    evidence = []
+    for patient in patients:
+        patient_id = patient.get("id")
+        if not patient_id:
+            continue
+        bundle = await client.search_patient_resources(
+            "Encounter",
+            patient_id,
+            count=limit,
+            sort="-date",
+        )
+        encounters = normalize_encounter_bundle(bundle)
+        patient_label = _format_patient_identity(patient)
+        if encounters:
+            encounter_summary = "; ".join(_format_encounter(item) for item in encounters)
+            summaries.append(f"{patient_label}: {encounter_summary}")
+            evidence.extend(
+                _evidence(
+                    "Encounter",
+                    item.get("id"),
+                    f"{patient_label}: {_format_encounter(item)}",
+                    _with_patient_context(item, patient),
+                )
+                for item in encounters
+            )
+        else:
+            summaries.append(f"{patient_label}: khÃ´ng cÃ³ báº£n ghi láº§n khÃ¡m")
+
+    answer = _format_all_patient_answer(
+        summaries,
+        empty_message="KhÃ´ng tÃ¬m tháº¥y bá»‡nh nhÃ¢n nÃ o Ä‘á»ƒ kiá»ƒm tra láº§n khÃ¡m.",
+        prefix="Theo dá»¯ liá»‡u FHIR hiá»‡n cÃ³, láº§n khÃ¡m cá»§a cÃ¡c bá»‡nh nhÃ¢n lÃ ",
+    )
+    return {
+        "answer": answer,
+        "intent": "encounters",
+        "patient_id": None,
+        "evidence": evidence,
+        "usage": _zero_usage(),
+    }
+
+
+async def _answer_encounters(client: FhirClient, patient_id: str, limit: int) -> dict[str, Any]:
+    bundle = await client.search_patient_resources(
+        "Encounter",
+        patient_id,
+        count=limit,
+        sort="-date",
+    )
+    encounters = normalize_encounter_bundle(bundle)
+    if not encounters:
+        answer = f"KhÃ´ng tÃ¬m tháº¥y báº£n ghi láº§n khÃ¡m nÃ o cho Bá»‡nh nhÃ¢n Patient/{patient_id}."
+    else:
+        summary = "; ".join(_format_encounter(item) for item in encounters)
+        answer = (
+            f"Theo dá»¯ liá»‡u FHIR hiá»‡n cÃ³, Bá»‡nh nhÃ¢n Patient/{patient_id} cÃ³ "
+            f"{len(encounters)} báº£n ghi láº§n khÃ¡m gáº§n Ä‘Ã¢y: {summary}."
+        )
+    return {
+        "answer": answer,
+        "intent": "encounters",
+        "patient_id": patient_id,
+        "evidence": [
+            _evidence("Encounter", item.get("id"), _format_encounter(item), item)
+            for item in encounters
+        ],
+        "usage": _zero_usage(),
+    }
+
+
 async def _answer_all_patient_conditions(client: FhirClient, limit: int) -> dict[str, Any]:
     patients = await _get_patients(client, limit=20)
     summaries = []
@@ -413,6 +503,8 @@ def _detect_intent(message: str) -> str:
         return "medications"
     if _contains_any(text, OBSERVATION_KEYWORDS):
         return "observations"
+    if _contains_any(text, ENCOUNTER_KEYWORDS):
+        return "encounters"
     if _contains_any(text, PATIENT_CONTACT_KEYWORDS):
         return "patient"
     if _contains_any(text, CONDITION_KEYWORDS):
@@ -443,6 +535,27 @@ def _format_observation(observation: dict[str, Any]) -> str:
     return f"{code}: {component_text}" if component_text else str(code)
 
 
+def _format_encounter(encounter: dict[str, Any]) -> str:
+    encounter_id = encounter.get("id") or "unknown"
+    type_text = _first_text(encounter.get("type")) or _display_vi(encounter.get("status")) or "lần khám"
+    period = encounter.get("period") or {}
+    start = period.get("start") if isinstance(period, dict) else None
+    end = period.get("end") if isinstance(period, dict) else None
+    location = _encounter_location_text(encounter)
+    reason = _first_text(encounter.get("reason_code"))
+
+    parts = [f"Encounter/{encounter_id} - {type_text}"]
+    if start:
+        parts.append(f"bắt đầu {start}")
+    if end:
+        parts.append(f"kết thúc {end}")
+    if location:
+        parts.append(f"địa điểm {location}")
+    if reason:
+        parts.append(f"lý do {reason}")
+    return ", ".join(parts)
+
+
 def _format_patient_summary(patient: dict[str, Any]) -> str:
     patient_id = patient.get("id") or "unknown"
     name = _value_or_unknown(patient.get("name"))
@@ -462,6 +575,28 @@ def _format_all_patient_answer(summaries: list[str], *, empty_message: str, pref
     if not summaries:
         return empty_message
     return f"{prefix}: " + "; ".join(summaries) + "."
+
+
+def _first_text(items: Any) -> str | None:
+    if not isinstance(items, list):
+        return None
+    for item in items:
+        if isinstance(item, dict) and item.get("text"):
+            return item["text"]
+    return None
+
+
+def _encounter_location_text(encounter: dict[str, Any]) -> str | None:
+    locations = encounter.get("location") or []
+    if not isinstance(locations, list):
+        return None
+    for item in locations:
+        if not isinstance(item, dict):
+            continue
+        location = item.get("location")
+        if isinstance(location, dict) and location.get("display"):
+            return location["display"]
+    return None
 
 
 async def _get_patients(client: FhirClient, limit: int) -> list[dict[str, Any]]:

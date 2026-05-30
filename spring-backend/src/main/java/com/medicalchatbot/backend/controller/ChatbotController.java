@@ -59,6 +59,14 @@ public class ChatbotController {
         return chatbotServiceClient.getPatientConditions(patientId, limit);
     }
 
+    @GetMapping("/patients/{patientId}/encounters")
+    JsonNode encounters(
+            @PathVariable String patientId,
+            @RequestParam(defaultValue = "5") @Min(1) @Max(50) int limit
+    ) {
+        return chatbotServiceClient.getPatientEncounters(patientId, limit);
+    }
+
     @GetMapping("/patients/{patientId}/medications")
     JsonNode medications(
             @PathVariable String patientId,

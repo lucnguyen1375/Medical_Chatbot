@@ -1,4 +1,5 @@
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -113,7 +114,7 @@ class OpenAIAnswerGenerator:
                 reason=str(exc),
             )
 
-        answer = (response.choices[0].message.content or "").strip()
+        answer = clean_llm_answer(response.choices[0].message.content or "")
         if not answer:
             return AnswerResult(
                 answer=fallback_answer,
@@ -168,6 +169,9 @@ def compact_resource_data(data: Any) -> Any:
         "active",
         "status",
         "intent",
+        "class",
+        "type",
+        "service_type",
         "priority",
         "name",
         "names",
@@ -183,6 +187,11 @@ def compact_resource_data(data: Any) -> Any:
         "patient",
         "encounter",
         "encounter_detail",
+        "participant",
+        "period",
+        "diagnosis",
+        "location",
+        "service_provider",
         "effective_time",
         "issued",
         "authored_on",
@@ -228,6 +237,15 @@ def combine_usage(*usages: dict[str, Any] | None) -> dict[str, int | float]:
         combined["output_tokens"] += _number(usage.get("output_tokens"))
         combined["estimated_cost_usd"] += _number(usage.get("estimated_cost_usd"))
     return combined
+
+
+def clean_llm_answer(answer: str) -> str:
+    cleaned = answer.strip()
+    cleaned = re.sub(r"\*\*([^*]+)\*\*", r"\1", cleaned)
+    cleaned = re.sub(r"__([^_]+)__", r"\1", cleaned)
+    cleaned = re.sub(r"\*([^*\n]+)\*", r"\1", cleaned)
+    cleaned = re.sub(r"`([^`]+)`", r"\1", cleaned)
+    return cleaned
 
 
 def _number(value: Any) -> int | float:

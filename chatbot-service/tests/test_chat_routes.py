@@ -11,6 +11,7 @@ from agents.answer_generator import AnswerResult
 from agents.intent_extractor import (
     IntentPlan,
     TOOL_GET_CONDITIONS,
+    TOOL_GET_ENCOUNTERS,
     TOOL_GET_MEDICATIONS,
     TOOL_GET_OBSERVATIONS,
     TOOL_GET_PATIENT,
@@ -46,6 +47,9 @@ class ChatRoutesTests(unittest.TestCase):
 
     def test_detects_patient_list_intent(self) -> None:
         self.assertEqual(_detect_intent("danh sach benh nhan hien co"), "patients")
+
+    def test_detects_vietnamese_encounter_intent(self) -> None:
+        self.assertEqual(_detect_intent("lich su kham cua benh nhan 001"), "encounters")
 
     def test_resolves_patient_reference(self) -> None:
         request = ChatRequest(message="Show medications for Patient/demo-patient-001")
@@ -160,6 +164,19 @@ class IntentExtractorTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(plan.tool_name, TOOL_GET_OBSERVATIONS)
         self.assertEqual(plan.observation_type, "heart_rate")
+
+    async def test_rule_based_extractor_routes_vietnamese_encounters(self) -> None:
+        plan = await RuleBasedIntentExtractor().extract("benh nhan 005 kham gan nhat khi nao")
+
+        self.assertEqual(plan.tool_name, TOOL_GET_ENCOUNTERS)
+        self.assertEqual(plan.intent, "encounters")
+        self.assertEqual(plan.patient_id, "demo-patient-005")
+
+    async def test_rule_based_extractor_routes_all_patient_encounters(self) -> None:
+        plan = await RuleBasedIntentExtractor().extract("lich su kham cua tat ca benh nhan")
+
+        self.assertEqual(plan.tool_name, TOOL_GET_ENCOUNTERS)
+        self.assertTrue(plan.all_patients)
 
     def test_guardrail_routes_phone_to_patient_tool(self) -> None:
         plan = IntentPlan(

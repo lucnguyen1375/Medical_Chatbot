@@ -2,6 +2,7 @@ import unittest
 
 from agents.answer_generator import (
     TemplateAnswerGenerator,
+    clean_llm_answer,
     combine_usage,
     compact_evidence_for_llm,
 )
@@ -55,6 +56,11 @@ class AnswerGeneratorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["input_tokens"], 30)
         self.assertEqual(result["output_tokens"], 12)
         self.assertAlmostEqual(result["estimated_cost_usd"], 0.03)
+
+    def test_clean_llm_answer_removes_basic_markdown(self) -> None:
+        result = clean_llm_answer("1. **Loại khám**: `Asthma follow-up visit`")
+
+        self.assertEqual(result, "1. Loại khám: Asthma follow-up visit")
 
 
 if __name__ == "__main__":

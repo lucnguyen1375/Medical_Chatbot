@@ -12,6 +12,7 @@ DEFAULT_PATIENT_ID = "demo-patient-001"
 TOOL_GET_PATIENT = "get_patient_by_id"
 TOOL_SEARCH_PATIENTS = "search_patients"
 TOOL_GET_OBSERVATIONS = "get_observations"
+TOOL_GET_ENCOUNTERS = "get_encounters"
 TOOL_GET_CONDITIONS = "get_conditions"
 TOOL_GET_MEDICATIONS = "get_medication_requests"
 TOOL_UNSUPPORTED = "unsupported_question"
@@ -20,6 +21,7 @@ TOOL_TO_INTENT = {
     TOOL_GET_PATIENT: "patient",
     TOOL_SEARCH_PATIENTS: "patients",
     TOOL_GET_OBSERVATIONS: "observations",
+    TOOL_GET_ENCOUNTERS: "encounters",
     TOOL_GET_CONDITIONS: "conditions",
     TOOL_GET_MEDICATIONS: "medications",
     TOOL_UNSUPPORTED: "unknown",
@@ -37,6 +39,20 @@ OBSERVATION_KEYWORDS = [
     "huyet ap",
     "duong huyet",
     "nhip tim",
+]
+ENCOUNTER_KEYWORDS = [
+    "encounter",
+    "visit",
+    "appointment",
+    "check-up",
+    "checkup",
+    "kham",
+    "lan kham",
+    "lich su kham",
+    "dot kham",
+    "kham gan nhat",
+    "phong kham",
+    "phong nao",
 ]
 PATIENT_CONTACT_KEYWORDS = ["phone", "telephone", "mobile", "contact", "so dien thoai", "dien thoai"]
 PATIENT_LIST_KEYWORDS = [
@@ -108,6 +124,13 @@ class RuleBasedIntentExtractor:
                 limit=5,
                 all_patients=all_patient_scope,
             )
+        if contains_any(text, ENCOUNTER_KEYWORDS):
+            return IntentPlan(
+                tool_name=TOOL_GET_ENCOUNTERS,
+                patient_id=patient_id,
+                limit=5,
+                all_patients=all_patient_scope,
+            )
         if contains_any(text, PATIENT_CONTACT_KEYWORDS):
             return IntentPlan(tool_name=TOOL_GET_PATIENT, patient_id=patient_id)
         if contains_any(text, CONDITION_KEYWORDS):
@@ -147,7 +170,8 @@ class OpenAIIntentExtractor:
             "If the user did not provide a patient id, use demo-patient-001 for local demo. "
             "Vietnamese 'benh nhan' means patient, not condition. "
             "Questions about all patients, patient list, 'tat ca benh nhan', or 'danh sach benh nhan' must use search_patients. "
-            "Questions about phone, contact, 'so dien thoai', or 'dien thoai' must use get_patient_by_id."
+            "Questions about phone, contact, 'so dien thoai', or 'dien thoai' must use get_patient_by_id. "
+            "Questions about encounters, visits, appointments, 'lan kham', 'lich su kham', or 'kham gan nhat' must use get_encounters."
         )
         user_prompt = {
             "message": message,
@@ -227,6 +251,8 @@ def plan_from_tool_call(
         limit = clamp(limit, 1, 50)
     elif tool_name == TOOL_GET_OBSERVATIONS:
         limit = clamp(limit, 1, 20)
+    elif tool_name == TOOL_GET_ENCOUNTERS:
+        limit = clamp(limit, 1, 20)
     else:
         limit = clamp(limit, 1, 50)
 
@@ -299,6 +325,8 @@ def apply_all_patient_scope(message: str, plan: IntentPlan) -> IntentPlan:
         tool_name = TOOL_GET_MEDICATIONS
     elif contains_any(text, OBSERVATION_KEYWORDS):
         tool_name = TOOL_GET_OBSERVATIONS
+    elif contains_any(text, ENCOUNTER_KEYWORDS):
+        tool_name = TOOL_GET_ENCOUNTERS
     elif contains_any(text, CONDITION_KEYWORDS):
         tool_name = TOOL_GET_CONDITIONS
 
@@ -480,6 +508,25 @@ FHIR_TOOL_DEFINITIONS = [
                     "limit": {
                         "type": "integer",
                         "description": "Maximum number of observations to retrieve.",
+                    },
+                },
+                "required": ["patient_id"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": TOOL_GET_ENCOUNTERS,
+            "description": "Retrieve patient encounters or visits, including recent visit time, visit type, reason, participants, and location.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "patient_id": {"type": "string"},
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of encounters to retrieve.",
                     },
                 },
                 "required": ["patient_id"],

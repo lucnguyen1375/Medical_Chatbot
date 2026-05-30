@@ -49,6 +49,16 @@ public class ChatbotServiceClient {
                 .body(JsonNode.class);
     }
 
+    public JsonNode getPatientEncounters(String patientId, int limit) {
+        return chatbotRestClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/patients/{patientId}/encounters")
+                        .queryParam("limit", limit)
+                        .build(patientId))
+                .retrieve()
+                .body(JsonNode.class);
+    }
+
     public JsonNode getPatientMedications(String patientId, int limit) {
         return chatbotRestClient.get()
                 .uri(uriBuilder -> uriBuilder

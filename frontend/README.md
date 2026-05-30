@@ -26,4 +26,6 @@ POST http://localhost:8081/api/chat
 
 The response metadata panel shows `intent`, `tool_name`, `answer_source`, patient scope, evidence, and usage. Evidence items can be expanded to inspect normalized FHIR data.
 
+Supported demo question groups include patient info, encounters/visits, observations, conditions, and medication requests.
+
 The frontend should call the Spring Boot backend only. It must not call the FastAPI chatbot service or HAPI FHIR directly.

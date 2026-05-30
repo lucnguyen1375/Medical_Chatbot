@@ -45,6 +45,7 @@ Supported tool plans:
 
 ```text
 get_patient_by_id
+get_encounters
 get_observations
 get_conditions
 get_medication_requests
@@ -58,6 +59,7 @@ After FHIR retrieval, `agents/answer_generator.py` can call the LLM again with o
 - `GET /health`
 - `GET /fhir/status`
 - `GET /patients/{patient_id}`
+- `GET /patients/{patient_id}/encounters?limit=5`
 - `GET /patients/{patient_id}/observations?limit=5`
 - `GET /patients/{patient_id}/conditions`
 - `GET /patients/{patient_id}/medications`

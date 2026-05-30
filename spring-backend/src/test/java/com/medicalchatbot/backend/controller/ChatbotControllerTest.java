@@ -58,6 +58,27 @@ class ChatbotControllerTest {
     }
 
     @Test
+    void encountersReturnChatbotServicePayload() throws Exception {
+        when(chatbotServiceClient.getPatientEncounters("demo-patient-005", 5))
+                .thenReturn(objectMapper.readTree("""
+                        {
+                          "patient_id": "demo-patient-005",
+                          "encounters": [
+                            {
+                              "id": "demo-encounter-006",
+                              "status": "finished"
+                            }
+                          ]
+                        }
+                        """));
+
+        mockMvc.perform(get("/api/patients/demo-patient-005/encounters"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.patient_id").value("demo-patient-005"))
+                .andExpect(jsonPath("$.encounters[0].id").value("demo-encounter-006"));
+    }
+
+    @Test
     void chatReturnsPersistedSessionResponse() throws Exception {
         UUID sessionId = UUID.fromString("00000000-0000-0000-0000-000000000301");
         when(chatApplicationService.chat(new ChatRequest(null, "demo-patient-001", "Bệnh nhân 001 đang dùng thuốc gì?")))

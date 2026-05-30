@@ -9,7 +9,7 @@ Implemented:
 - FastAPI service entrypoint.
 - Health endpoint.
 - FHIR status endpoint.
-- Patient, Observation, Condition, and MedicationRequest read endpoints.
+- Patient, Encounter, Observation, Condition, and MedicationRequest read endpoints.
 - `POST /chat` endpoint for patient, observation, condition, and medication questions.
 - OpenAI tool/function calling intent extraction when `OPENAI_API_KEY` is configured.
 - Rule-based fallback intent extraction for local demos without an LLM API key.
@@ -57,6 +57,7 @@ Use these after the server starts:
 GET http://localhost:8000/health
 GET http://localhost:8000/fhir/status
 GET http://localhost:8000/patients/demo-patient-001
+GET http://localhost:8000/patients/demo-patient-005/encounters?limit=5
 GET http://localhost:8000/patients/demo-patient-001/observations?limit=5
 GET http://localhost:8000/patients/demo-patient-001/conditions
 GET http://localhost:8000/patients/demo-patient-001/medications
@@ -79,6 +80,7 @@ When configured, the OpenAI extractor asks the model to select one of these tool
 ```text
 get_patient_by_id
 search_patients
+get_encounters
 get_observations
 get_conditions
 get_medication_requests
@@ -133,7 +135,7 @@ The normalizer preserves detailed fields for Patient, Encounter, Observation, Co
 Last checked on 2026-05-30:
 
 ```text
-python -m unittest discover tests: 38 tests passed
+python -m unittest discover tests: 42 tests passed
 python -m compileall app api agents fhir tests: passed
 app import: passed
 GET /health: passed
@@ -148,4 +150,5 @@ Chatbot service dev server: http://localhost:8000
 Detailed evidence passthrough via POST /chat: passed
 LLM final answer via POST /chat: passed
 Spring passthrough of answer_source and answer_usage: passed
+Encounter direct endpoint and chat flow: passed
 ```

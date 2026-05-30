@@ -4,6 +4,7 @@ from fhir.client import FhirClient, FhirClientError, FhirNotFoundError, get_fhir
 from fhir.normalizer import (
     normalize_capability_statement,
     normalize_condition_bundle,
+    normalize_encounter_bundle,
     normalize_medication_request_bundle,
     normalize_observation_bundle,
     normalize_patient,
@@ -80,6 +81,27 @@ async def get_patient_conditions(
     return {
         "patient_id": patient_id,
         "conditions": normalize_condition_bundle(bundle),
+    }
+
+
+@router.get("/patients/{patient_id}/encounters")
+async def get_patient_encounters(
+    patient_id: str,
+    limit: int = Query(default=5, ge=1, le=50),
+    client: FhirClient = Depends(get_fhir_client),
+) -> dict:
+    try:
+        bundle = await client.search_patient_resources(
+            "Encounter",
+            patient_id,
+            count=limit,
+            sort="-date",
+        )
+    except FhirClientError as exc:
+        raise translate_fhir_error(exc) from exc
+    return {
+        "patient_id": patient_id,
+        "encounters": normalize_encounter_bundle(bundle),
     }
 
 
