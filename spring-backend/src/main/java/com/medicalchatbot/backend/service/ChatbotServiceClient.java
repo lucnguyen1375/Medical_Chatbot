@@ -1,6 +1,8 @@
-package com.medicalchatbot.backend.client;
+package com.medicalchatbot.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.medicalchatbot.backend.dto.ChatbotChatRequest;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -53,6 +55,15 @@ public class ChatbotServiceClient {
                         .path("/patients/{patientId}/medications")
                         .queryParam("limit", limit)
                         .build(patientId))
+                .retrieve()
+                .body(JsonNode.class);
+    }
+
+    public JsonNode chat(ChatbotChatRequest request) {
+        return chatbotRestClient.post()
+                .uri("/chat")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(request)
                 .retrieve()
                 .body(JsonNode.class);
     }

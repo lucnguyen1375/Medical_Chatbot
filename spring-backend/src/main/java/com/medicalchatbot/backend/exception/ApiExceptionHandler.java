@@ -1,4 +1,4 @@
-package com.medicalchatbot.backend.api;
+package com.medicalchatbot.backend.exception;
 
 import java.util.Map;
 

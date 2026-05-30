@@ -1,6 +1,15 @@
 spring:
   application:
     name: spring-backend
+  datasource:
+    url: jdbc:postgresql://localhost:5433/medical_chatbot_app
+    username: app_user
+    password: app_password
+    driver-class-name: org.postgresql.Driver
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
 
 server:
   port: 8081

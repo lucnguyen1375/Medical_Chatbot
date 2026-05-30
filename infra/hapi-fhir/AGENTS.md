@@ -6,7 +6,7 @@ This folder contains the first infrastructure slice for the Medical Chatbot proj
 
 - HAPI FHIR JPA Server.
 - PostgreSQL used only as HAPI FHIR internal persistence.
-- PostgreSQL host port configured as `localhost:5432` for GUI inspection tools.
+- PostgreSQL host port configured as `localhost:5434` for GUI inspection tools.
 - Demo FHIR transaction Bundle with fixed IDs.
 - Python scripts to wait for HAPI, seed demo data, and check FHIR connectivity.
 
@@ -56,7 +56,7 @@ For database inspection tools such as DBeaver or pgAdmin:
 
 ```text
 Host: localhost
-Port: 5432
+Port: 5434
 Database: hapi
 User: admin
 Password: admin
@@ -111,8 +111,8 @@ Demo patient: Nguyen Van A
 Observation count: 2
 Condition count: 1
 MedicationRequest count: 1
-PostgreSQL host port mapping: 0.0.0.0:5432->5432/tcp verified
-Local Windows PostgreSQL service stopped: postgresql-x64-18
+PostgreSQL host port mapping: 0.0.0.0:5434->5432/tcp verified
+Local Windows PostgreSQL service conflict avoided by using host port 5434
 Created dev compatibility role: postgres/postgres
 ```
 

@@ -33,11 +33,23 @@ $env:FHIR_BASE_URL="http://localhost:8080/fhir"
 - `GET /patients/{patient_id}/observations?limit=5`
 - `GET /patients/{patient_id}/conditions`
 - `GET /patients/{patient_id}/medications`
+- `POST /chat`
 
 Demo patient:
 
 ```text
 demo-patient-001
+```
+
+Demo chat request:
+
+```powershell
+$body = @{
+  message = "What medications is Patient/demo-patient-001 taking?"
+  patient_id = "demo-patient-001"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:8000/chat" -Method Post -ContentType "application/json" -Body $body
 ```
 
 ## Tests

@@ -10,17 +10,16 @@ Implemented:
 - Health endpoint.
 - FHIR status endpoint.
 - Patient, Observation, Condition, and MedicationRequest read endpoints.
+- Rule-based demo `POST /chat` endpoint for patient, observation, condition, and medication questions.
 - Central FHIR HTTP client using HAPI FHIR REST APIs.
 - Normalizers that convert raw FHIR resources/Bundles into compact JSON for app and future LLM usage.
-- Unit tests for normalizers and FHIR client behavior with mocked HTTP transport.
+- Unit tests for normalizers, FHIR client behavior with mocked HTTP transport, and chat route intent/patient parsing.
 
 Not implemented yet:
 
-- Chat session APIs.
 - LLM orchestration/tool calling.
-- Usage, token, and cost tracking.
+- Real usage, token, and cost tracking.
 - Authentication/access control.
-- Spring Boot backend integration.
 - Frontend integration.
 
 ## Main Rule
@@ -59,6 +58,7 @@ GET http://localhost:8000/patients/demo-patient-001
 GET http://localhost:8000/patients/demo-patient-001/observations?limit=5
 GET http://localhost:8000/patients/demo-patient-001/conditions
 GET http://localhost:8000/patients/demo-patient-001/medications
+POST http://localhost:8000/chat
 ```
 
 ## Verification Result
@@ -67,7 +67,7 @@ Last checked on 2026-05-29:
 
 ```text
 python -m py_compile chatbot-service modules: passed
-python -m unittest discover tests: 5 tests passed
+python -m unittest discover tests: 9 tests passed
 app import: passed
 GET /health: passed
 GET /fhir/status: passed
@@ -75,5 +75,6 @@ GET /patients/demo-patient-001: passed
 GET /patients/demo-patient-001/observations?limit=5: passed
 GET /patients/demo-patient-001/conditions: passed
 GET /patients/demo-patient-001/medications: passed
+POST /chat medication demo: passed
 Chatbot service dev server: http://localhost:8000
 ```

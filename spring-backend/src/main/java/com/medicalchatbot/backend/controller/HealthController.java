@@ -1,4 +1,4 @@
-package com.medicalchatbot.backend.api;
+package com.medicalchatbot.backend.controller;
 
 import java.util.Map;
 

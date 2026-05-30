@@ -5,7 +5,7 @@ This folder owns the local HAPI FHIR stack for the Medical Chatbot project.
 It runs:
 
 - HAPI FHIR JPA Server at `http://localhost:8080/fhir`
-- PostgreSQL as HAPI's internal persistence database, published at `localhost:5432`
+- PostgreSQL as HAPI's internal persistence database, published at `localhost:5434`
 - Demo FHIR resources seeded through the FHIR REST API
 
 The chatbot backend must connect through FHIR REST endpoints. Do not query or modify HAPI PostgreSQL tables directly.
@@ -51,7 +51,7 @@ The Compose file publishes PostgreSQL to the host:
 
 ```text
 Host: localhost
-Port: 5432
+Port: 5434
 Database: hapi
 User: admin
 Password: admin
@@ -61,7 +61,7 @@ For tools that already have a local `postgres` user profile, this dev stack also
 
 ```text
 Host: localhost
-Port: 5432
+Port: 5434
 Database: hapi
 User: postgres
 Password: postgres

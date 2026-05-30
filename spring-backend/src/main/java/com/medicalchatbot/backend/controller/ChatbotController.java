@@ -1,12 +1,18 @@
-package com.medicalchatbot.backend.api;
+package com.medicalchatbot.backend.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.medicalchatbot.backend.client.ChatbotServiceClient;
+import com.medicalchatbot.backend.dto.ChatRequest;
+import com.medicalchatbot.backend.dto.ChatResponse;
+import com.medicalchatbot.backend.service.ChatApplicationService;
+import com.medicalchatbot.backend.service.ChatbotServiceClient;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -17,9 +23,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class ChatbotController {
 
     private final ChatbotServiceClient chatbotServiceClient;
+    private final ChatApplicationService chatApplicationService;
 
-    public ChatbotController(ChatbotServiceClient chatbotServiceClient) {
+    public ChatbotController(
+            ChatbotServiceClient chatbotServiceClient,
+            ChatApplicationService chatApplicationService
+    ) {
         this.chatbotServiceClient = chatbotServiceClient;
+        this.chatApplicationService = chatApplicationService;
     }
 
     @GetMapping("/chatbot/status")
@@ -54,5 +65,10 @@ public class ChatbotController {
             @RequestParam(defaultValue = "20") @Min(1) @Max(50) int limit
     ) {
         return chatbotServiceClient.getPatientMedications(patientId, limit);
+    }
+
+    @PostMapping("/chat")
+    ChatResponse chat(@Valid @RequestBody ChatRequest request) {
+        return chatApplicationService.chat(request);
     }
 }

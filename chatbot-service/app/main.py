@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from api.chat_routes import router as chat_router
 from api.fhir_routes import router as fhir_router
 from api.health_routes import router as health_router
 from app.config import get_settings
@@ -14,3 +15,4 @@ app = FastAPI(
 
 app.include_router(health_router)
 app.include_router(fhir_router)
+app.include_router(chat_router)

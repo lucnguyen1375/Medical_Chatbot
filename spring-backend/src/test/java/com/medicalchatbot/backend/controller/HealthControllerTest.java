@@ -1,4 +1,4 @@
-package com.medicalchatbot.backend.api;
+package com.medicalchatbot.backend.controller;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;

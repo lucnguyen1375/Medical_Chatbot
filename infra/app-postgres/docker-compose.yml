@@ -1,0 +1,21 @@
+services:
+  app-postgres:
+    image: postgres:16-alpine
+    container_name: medical-chatbot-app-postgres
+    environment:
+      POSTGRES_DB: medical_chatbot_app
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: app_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - app-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app_user -d medical_chatbot_app"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  app-postgres-data:
