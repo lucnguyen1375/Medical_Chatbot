@@ -29,6 +29,9 @@ class FhirClient:
     async def get_patient(self, patient_id: str) -> dict[str, Any]:
         return await self._get(f"Patient/{patient_id}")
 
+    async def search_patients(self, *, count: int = 20) -> dict[str, Any]:
+        return await self._get("Patient", params={"_count": count})
+
     async def search_patient_resources(
         self,
         resource_type: str,
@@ -60,24 +63,24 @@ class FhirClient:
             ) as client:
                 response = await client.get(url, params=params)
                 if response.status_code == 404:
-                    raise FhirNotFoundError("Requested FHIR resource was not found.")
+                    raise FhirNotFoundError("Không tìm thấy tài nguyên FHIR được yêu cầu.")
                 response.raise_for_status()
                 payload = response.json()
         except FhirClientError:
             raise
         except httpx.HTTPStatusError as exc:
             raise FhirClientError(
-                "The FHIR server returned an error.",
+                "FHIR Server trả về lỗi.",
                 f"HTTP {exc.response.status_code}: {exc.response.text}",
             ) from exc
         except (httpx.HTTPError, ValueError) as exc:
             raise FhirClientError(
-                "The FHIR server is unavailable or returned invalid data.",
+                "FHIR Server hiện không khả dụng hoặc trả về dữ liệu không hợp lệ.",
                 str(exc),
             ) from exc
 
         if not isinstance(payload, dict):
-            raise FhirClientError("The FHIR server returned invalid JSON.")
+            raise FhirClientError("FHIR Server trả về JSON không hợp lệ.")
         return payload
 
 

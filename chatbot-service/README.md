@@ -25,6 +25,31 @@ Override it with:
 $env:FHIR_BASE_URL="http://localhost:8080/fhir"
 ```
 
+## LLM Intent Extraction
+
+The chat endpoint extracts a FHIR tool plan before calling HAPI FHIR.
+
+Set these variables in `chatbot-service/.env` to enable OpenAI tool calling:
+
+```env
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-4.1-mini
+OPENAI_API_KEY=replace_me
+LLM_REQUEST_TIMEOUT_SECONDS=20
+```
+
+If `OPENAI_API_KEY` is missing, the service automatically uses a local rule-based extractor so demos still run.
+
+Supported tool plans:
+
+```text
+get_patient_by_id
+get_observations
+get_conditions
+get_medication_requests
+unsupported_question
+```
+
 ## Endpoints
 
 - `GET /health`
@@ -51,6 +76,8 @@ $body = @{
 
 Invoke-RestMethod -Uri "http://localhost:8000/chat" -Method Post -ContentType "application/json" -Body $body
 ```
+
+The response includes `tool_name` and `intent_source`. `intent_source` is `llm` when OpenAI tool calling is used, otherwise `rules`.
 
 ## Tests
 

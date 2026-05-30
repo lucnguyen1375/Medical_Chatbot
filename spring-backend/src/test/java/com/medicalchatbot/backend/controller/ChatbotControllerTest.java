@@ -54,18 +54,22 @@ class ChatbotControllerTest {
     void observationsRejectInvalidLimit() throws Exception {
         mockMvc.perform(get("/api/patients/demo-patient-001/observations?limit=100"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.detail").value("Request validation failed."));
+                .andExpect(jsonPath("$.detail").value("Dữ liệu yêu cầu không hợp lệ."));
     }
 
     @Test
     void chatReturnsPersistedSessionResponse() throws Exception {
         UUID sessionId = UUID.fromString("00000000-0000-0000-0000-000000000301");
-        when(chatApplicationService.chat(new ChatRequest(null, "demo-patient-001", "What medications?")))
+        when(chatApplicationService.chat(new ChatRequest(null, "demo-patient-001", "Bệnh nhân 001 đang dùng thuốc gì?")))
                 .thenReturn(new ChatResponse(
                         sessionId,
-                        "According to the available FHIR data...",
+                        "Theo dữ liệu FHIR hiện có...",
                         "medications",
+                        "get_medication_requests",
+                        "llm",
                         "demo-patient-001",
+                        null,
+                        null,
                         objectMapper.readTree("[]"),
                         objectMapper.readTree("""
                                 {
@@ -81,12 +85,14 @@ class ChatbotControllerTest {
                         .content("""
                                 {
                                   "patient_id": "demo-patient-001",
-                                  "message": "What medications?"
+                                  "message": "Bệnh nhân 001 đang dùng thuốc gì?"
                                 }
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.session_id").value(sessionId.toString()))
                 .andExpect(jsonPath("$.intent").value("medications"))
+                .andExpect(jsonPath("$.tool_name").value("get_medication_requests"))
+                .andExpect(jsonPath("$.intent_source").value("llm"))
                 .andExpect(jsonPath("$.patient_id").value("demo-patient-001"));
     }
 }

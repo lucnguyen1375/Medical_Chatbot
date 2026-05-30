@@ -21,15 +21,46 @@ python infra/hapi-fhir/scripts/seed_fhir_data.py
 python infra/hapi-fhir/scripts/check_connection.py
 ```
 
-Run the seed script again any time you want to restore the demo resources. It uses fixed FHIR IDs and `PUT` inside a transaction Bundle, so it updates existing resources instead of creating duplicates.
+Run the seed script again any time you want to restore the demo resources. It posts every JSON transaction Bundle in `seed/`. Each resource uses fixed FHIR IDs and `PUT`, so rerunning the script updates existing resources instead of creating duplicates.
+
+## Demo Dataset
+
+Seed files:
+
+- `seed/demo-data-transaction-bundle.json`: base patient and first clinical records.
+- `seed/extended-demo-data-transaction-bundle.json`: extra patients and richer test records.
+
+Current demo patients:
+
+| Patient | Name | Phone | Useful test data |
+|---|---|---|---|
+| `demo-patient-001` | Nguyen Van A | `0900000001` | hypertension, prediabetes, blood pressure, glucose, heart rate, amlodipine, metformin |
+| `demo-patient-002` | Tran Thi B | `0900000002` | resolved upper respiratory infection, blood pressure, heart rate, paracetamol |
+| `demo-patient-003` | Le Minh C | `0900000003` | type 2 diabetes, glucose, HbA1c, metformin |
+| `demo-patient-004` | Pham Thu D | `0900000004` | hypertension, hyperlipidemia, blood pressure, cholesterol, atorvastatin, losartan |
+
+Example Vietnamese chat prompts:
+
+```text
+Bệnh nhân 001 đang dùng thuốc gì?
+Số điện thoại của bệnh nhân 003 là gì?
+Cho tôi xem huyết áp gần nhất của bệnh nhân 004
+Chẩn đoán của bệnh nhân 003 là gì?
+Cholesterol của bệnh nhân 004 là bao nhiêu?
+HbA1c của bệnh nhân 003 là bao nhiêu?
+```
 
 ## Useful Endpoints
 
 - `GET http://localhost:8080/fhir/metadata`
 - `GET http://localhost:8080/fhir/Patient/demo-patient-001`
+- `GET http://localhost:8080/fhir/Patient/demo-patient-003`
 - `GET http://localhost:8080/fhir/Observation?patient=Patient/demo-patient-001&_sort=-date&_count=5`
+- `GET http://localhost:8080/fhir/Observation?patient=Patient/demo-patient-004&_sort=-date&_count=10`
 - `GET http://localhost:8080/fhir/Condition?patient=Patient/demo-patient-001`
+- `GET http://localhost:8080/fhir/Condition?patient=Patient/demo-patient-004`
 - `GET http://localhost:8080/fhir/MedicationRequest?patient=Patient/demo-patient-001`
+- `GET http://localhost:8080/fhir/MedicationRequest?patient=Patient/demo-patient-004`
 
 ## Backend Connection
 

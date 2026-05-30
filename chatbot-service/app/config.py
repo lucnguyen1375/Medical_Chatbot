@@ -5,9 +5,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "Medical Chatbot Service"
+    app_name: str = "Dịch vụ Chatbot Y tế"
     fhir_base_url: str = Field(default="http://localhost:8080/fhir")
     fhir_request_timeout_seconds: float = Field(default=20)
+    llm_provider: str = Field(default="openai")
+    llm_model: str = Field(default="gpt-4.1-mini")
+    openai_api_key: str | None = Field(default=None)
+    llm_request_timeout_seconds: float = Field(default=20)
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -18,6 +22,10 @@ class Settings(BaseSettings):
     @property
     def normalized_fhir_base_url(self) -> str:
         return self.fhir_base_url.rstrip("/")
+
+    @property
+    def use_openai_llm(self) -> bool:
+        return self.llm_provider.lower() == "openai" and bool(self.openai_api_key)
 
 
 @lru_cache

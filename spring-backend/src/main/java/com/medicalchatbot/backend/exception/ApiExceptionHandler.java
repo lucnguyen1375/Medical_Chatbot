@@ -19,24 +19,24 @@ public class ApiExceptionHandler {
     @ExceptionHandler(HttpClientErrorException.NotFound.class)
     ResponseEntity<Map<String, String>> notFound(HttpClientErrorException.NotFound exception) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(Map.of("detail", "Requested resource was not found in the chatbot service."));
+                .body(Map.of("detail", "Không tìm thấy tài nguyên trong chatbot-service."));
     }
 
     @ExceptionHandler(RestClientResponseException.class)
     ResponseEntity<Map<String, String>> chatbotResponseError(RestClientResponseException exception) {
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                .body(Map.of("detail", "The chatbot service returned an error."));
+                .body(Map.of("detail", "Chatbot-service trả về lỗi."));
     }
 
     @ExceptionHandler(RestClientException.class)
     ResponseEntity<Map<String, String>> chatbotUnavailable(RestClientException exception) {
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                .body(Map.of("detail", "The chatbot service is unavailable."));
+                .body(Map.of("detail", "Chatbot-service hiện không khả dụng."));
     }
 
     @ExceptionHandler({ConstraintViolationException.class, MethodArgumentNotValidException.class})
     ResponseEntity<Map<String, String>> validationError(Exception exception) {
         return ResponseEntity.badRequest()
-                .body(Map.of("detail", "Request validation failed."));
+                .body(Map.of("detail", "Dữ liệu yêu cầu không hợp lệ."));
     }
 }

@@ -13,8 +13,20 @@ public record ChatResponse(
 
         String intent,
 
+        @JsonProperty("tool_name")
+        String toolName,
+
+        @JsonProperty("intent_source")
+        String intentSource,
+
         @JsonProperty("patient_id")
         String patientId,
+
+        @JsonProperty("observation_type")
+        String observationType,
+
+        @JsonProperty("all_patients")
+        Boolean allPatients,
 
         JsonNode evidence,
 

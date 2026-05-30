@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chatbot Y tế</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="chat-panel" aria-label="Khung chat thử nghiệm">
+        <header class="top-bar">
+          <div>
+            <h1>Chatbot Y tế</h1>
+            <p>Giao diện thử nghiệm qua Spring backend</p>
+          </div>
+          <div class="status" id="statusText">Sẵn sàng</div>
+        </header>
+
+        <section class="settings-row" aria-label="Thiết lập yêu cầu">
+          <label>
+            Spring API
+            <input id="apiBaseUrl" value="http://localhost:8081" spellcheck="false" />
+          </label>
+          <label>
+            Mã bệnh nhân tùy chọn
+            <input id="patientId" placeholder="Ví dụ: demo-patient-003" spellcheck="false" />
+          </label>
+        </section>
+
+        <section class="messages" id="messages" aria-live="polite">
+          <article class="message assistant">
+            <div class="message-label">Trợ lý</div>
+            <p>Hãy hỏi về một bệnh nhân cụ thể hoặc hỏi danh sách bệnh nhân để kiểm tra luồng Spring -> chatbot-service -> FHIR.</p>
+          </article>
+        </section>
+
+        <form class="composer" id="chatForm">
+          <textarea
+            id="messageInput"
+            rows="3"
+            placeholder="Ví dụ: Danh sách bệnh nhân hiện có"
+            required
+          ></textarea>
+          <div class="composer-actions">
+            <button type="button" id="samplePatients">Bệnh nhân</button>
+            <button type="button" id="sampleMedication">Thuốc</button>
+            <button type="button" id="sampleObservation">Chỉ số</button>
+            <button type="submit" id="sendButton">Gửi</button>
+          </div>
+        </form>
+      </section>
+
+      <aside class="details-panel" aria-label="Chi tiết phản hồi">
+        <h2>Phản hồi gần nhất</h2>
+        <dl class="metadata">
+          <div>
+            <dt>Phiên</dt>
+            <dd id="sessionId">-</dd>
+          </div>
+          <div>
+            <dt>Intent</dt>
+            <dd id="intent">-</dd>
+          </div>
+          <div>
+            <dt>Tool</dt>
+            <dd id="toolName">-</dd>
+          </div>
+          <div>
+            <dt>Bệnh nhân</dt>
+            <dd id="responsePatient">-</dd>
+          </div>
+          <div>
+            <dt>Phạm vi</dt>
+            <dd id="responseScope">-</dd>
+          </div>
+          <div>
+            <dt>Loại chỉ số</dt>
+            <dd id="observationType">-</dd>
+          </div>
+        </dl>
+
+        <h2>Dữ liệu tham chiếu</h2>
+        <div id="evidenceList" class="evidence-list">
+          <p class="muted">Chưa có dữ liệu tham chiếu.</p>
+        </div>
+
+        <h2>Mức sử dụng</h2>
+        <pre id="usageBlock">-</pre>
+      </aside>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

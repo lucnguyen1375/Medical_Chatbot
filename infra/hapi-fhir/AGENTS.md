@@ -21,6 +21,7 @@ infra/hapi-fhir/
     application.yaml
   seed/
     demo-data-transaction-bundle.json
+    extended-demo-data-transaction-bundle.json
   scripts/
     wait_for_hapi.py
     seed_fhir_data.py
@@ -73,17 +74,52 @@ Only use this for inspection/debugging. Chatbot application code must still use 
 
 ## Demo Data Seeded
 
-The seed Bundle uses fixed resource IDs and transaction `PUT`, so running the seed script repeatedly updates the same resources instead of creating duplicates.
+The seed script posts every JSON transaction Bundle in `seed/`. The Bundles use fixed resource IDs and transaction `PUT`, so running the seed script repeatedly updates the same resources instead of creating duplicates.
 
 Seeded resources:
 
 - `Patient/demo-patient-001`
 - `Patient/demo-patient-002`
+- `Patient/demo-patient-003`
+- `Patient/demo-patient-004`
 - `Encounter/demo-encounter-001`
+- `Encounter/demo-encounter-002`
+- `Encounter/demo-encounter-003`
+- `Encounter/demo-encounter-004`
+- `Encounter/demo-encounter-005`
 - `Observation/demo-blood-pressure-001`
+- `Observation/demo-blood-pressure-002`
+- `Observation/demo-blood-pressure-003`
+- `Observation/demo-blood-pressure-004`
 - `Observation/demo-glucose-001`
+- `Observation/demo-glucose-002`
+- `Observation/demo-glucose-003`
+- `Observation/demo-heart-rate-001`
+- `Observation/demo-heart-rate-002`
+- `Observation/demo-hba1c-001`
+- `Observation/demo-total-cholesterol-001`
 - `Condition/demo-condition-001`
+- `Condition/demo-condition-002`
+- `Condition/demo-condition-003`
+- `Condition/demo-condition-004`
+- `Condition/demo-condition-005`
+- `Condition/demo-condition-006`
 - `MedicationRequest/demo-medication-request-001`
+- `MedicationRequest/demo-medication-request-002`
+- `MedicationRequest/demo-medication-request-003`
+- `MedicationRequest/demo-medication-request-004`
+- `MedicationRequest/demo-medication-request-005`
+- `MedicationRequest/demo-medication-request-006`
+
+Demo patient map:
+
+| Patient | Name | Phone | Test data |
+|---|---|---|---|
+| `demo-patient-001` | Nguyen Van A | `0900000001` | hypertension, prediabetes, blood pressure, glucose, heart rate, amlodipine, metformin |
+| `demo-patient-002` | Tran Thi B | `0900000002` | resolved upper respiratory infection, blood pressure, heart rate, paracetamol |
+| `demo-patient-003` | Le Minh C | `0900000003` | type 2 diabetes, glucose, detailed HbA1c, metformin |
+| `demo-patient-004` | Pham Thu D | `0900000004` | hypertension, hyperlipidemia, blood pressure, cholesterol, atorvastatin, losartan |
+| `demo-patient-005` | Hoang Anh E | `0900000005` | asthma, oxygen saturation, temperature, salbutamol inhaler, address/contact/email demo fields |
 
 ## Verified Endpoints
 
@@ -91,9 +127,13 @@ These endpoints were checked through FHIR REST calls:
 
 - `GET http://localhost:8080/fhir/metadata`
 - `GET http://localhost:8080/fhir/Patient/demo-patient-001`
+- `GET http://localhost:8080/fhir/Patient/demo-patient-003`
 - `GET http://localhost:8080/fhir/Observation?patient=Patient/demo-patient-001&_sort=-date&_count=5`
+- `GET http://localhost:8080/fhir/Observation?patient=Patient/demo-patient-004&_sort=-date&_count=10`
 - `GET http://localhost:8080/fhir/Condition?patient=Patient/demo-patient-001`
+- `GET http://localhost:8080/fhir/Condition?patient=Patient/demo-patient-004`
 - `GET http://localhost:8080/fhir/MedicationRequest?patient=Patient/demo-patient-001`
+- `GET http://localhost:8080/fhir/MedicationRequest?patient=Patient/demo-patient-004`
 
 ## Verification Result
 
@@ -114,6 +154,33 @@ MedicationRequest count: 1
 PostgreSQL host port mapping: 0.0.0.0:5434->5432/tcp verified
 Local Windows PostgreSQL service conflict avoided by using host port 5434
 Created dev compatibility role: postgres/postgres
+```
+
+Last extended seed verification on 2026-05-30:
+
+```text
+seed_fhir_data.py first extended run: 7 existing resources updated, 26 extended resources created
+seed_fhir_data.py second extended run: 33 resources updated with 200 OK
+Total demo resources in seed files: 33
+Patient/demo-patient-003: verified, phone 0900000003
+Patient/demo-patient-004 observations: 2 entries
+Patient/demo-patient-004 conditions: 2 entries
+Patient/demo-patient-004 MedicationRequest: 2 entries
+```
+
+Last detailed seed verification on 2026-05-30:
+
+```text
+Added detailed-demo-data-transaction-bundle.json
+seed_fhir_data.py: passed
+Total demo resources in seed files: 41
+Added Practitioner/demo-doctor-001 for valid performer/requester references
+Added Patient/demo-patient-005 with telecom, email, address, and contact data
+Added Encounter/demo-encounter-006 with participant, reason, period, and location
+Added detailed Observation resources with interpretation, referenceRange, issued, performer, and note
+Added Condition/demo-condition-006 with severity, onset, asserter, and note
+Added MedicationRequest/demo-medication-006 with dosageInstruction, reasonCode, reasonReference, dispenseRequest, and note
+check_connection.py: passed
 ```
 
 ## Important Rules

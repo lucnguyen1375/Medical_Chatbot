@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 FHIR_BASE_URL = os.getenv("FHIR_BASE_URL", "http://localhost:8080/fhir").rstrip("/")
-SEED_FILE = Path(__file__).resolve().parents[1] / "seed" / "demo-data-transaction-bundle.json"
+SEED_DIR = Path(__file__).resolve().parents[1] / "seed"
 
 
 def post_bundle(bundle: bytes) -> dict:
@@ -31,10 +31,34 @@ def post_bundle(bundle: bytes) -> dict:
 
 def main() -> int:
     try:
-        bundle = SEED_FILE.read_bytes()
-        response = post_bundle(bundle)
+        seed_files = sorted(SEED_DIR.glob("*.json"))
+        if not seed_files:
+            print(f"No seed JSON files found in: {SEED_DIR}", file=sys.stderr)
+            return 1
+
+        total_entries = 0
+        for seed_file in seed_files:
+            bundle = seed_file.read_bytes()
+            response = post_bundle(bundle)
+
+            if response.get("resourceType") != "Bundle":
+                print(
+                    f"Unexpected seed response for {seed_file.name}: "
+                    f"resourceType={response.get('resourceType')!r}",
+                    file=sys.stderr,
+                )
+                return 1
+
+            entries = response.get("entry", [])
+            statuses = [
+                entry.get("response", {}).get("status", "unknown")
+                for entry in entries
+            ]
+            total_entries += len(entries)
+            print(f"Seeded {seed_file.name} through {FHIR_BASE_URL}")
+            print(f"Transaction responses: {', '.join(statuses)}")
     except FileNotFoundError:
-        print(f"Seed file not found: {SEED_FILE}", file=sys.stderr)
+        print(f"Seed directory not found: {SEED_DIR}", file=sys.stderr)
         return 1
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
@@ -44,17 +68,7 @@ def main() -> int:
         print(f"FHIR server is not reachable at {FHIR_BASE_URL}: {exc}", file=sys.stderr)
         return 1
 
-    if response.get("resourceType") != "Bundle":
-        print(f"Unexpected seed response resourceType={response.get('resourceType')!r}", file=sys.stderr)
-        return 1
-
-    entries = response.get("entry", [])
-    statuses = [
-        entry.get("response", {}).get("status", "unknown")
-        for entry in entries
-    ]
-    print(f"Seeded demo FHIR data through {FHIR_BASE_URL}")
-    print(f"Transaction responses: {', '.join(statuses)}")
+    print(f"Seeded {total_entries} demo FHIR resources through {FHIR_BASE_URL}")
     return 0
 
 

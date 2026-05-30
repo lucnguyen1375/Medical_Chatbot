@@ -66,7 +66,11 @@ public class ChatApplicationService {
                 sessionId,
                 answer,
                 chatbotResponse.path("intent").asText(null),
+                chatbotResponse.path("tool_name").asText(null),
+                chatbotResponse.path("intent_source").asText(null),
                 chatbotResponse.path("patient_id").asText(null),
+                chatbotResponse.path("observation_type").asText(null),
+                chatbotResponse.has("all_patients") ? chatbotResponse.path("all_patients").asBoolean(false) : null,
                 chatbotResponse.path("evidence"),
                 chatbotResponse.path("usage")
         );
@@ -76,13 +80,13 @@ public class ChatApplicationService {
         return appUserRepository.findIdByUsername(DEMO_USERNAME)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.INTERNAL_SERVER_ERROR,
-                        "Demo user was not found."
+                        "Không tìm thấy người dùng demo."
                 ));
     }
 
     private UUID requireSessionForUser(UUID sessionId, UUID userId) {
         if (!chatSessionRepository.existsForUser(sessionId, userId)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Chat session was not found.");
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy phiên trò chuyện.");
         }
         return sessionId;
     }
@@ -98,9 +102,9 @@ public class ChatApplicationService {
     }
 
     private String titleFromMessage(String message) {
-        String normalized = message == null ? "New chat" : message.strip();
+        String normalized = message == null ? "Cuộc trò chuyện mới" : message.strip();
         if (normalized.isEmpty()) {
-            return "New chat";
+            return "Cuộc trò chuyện mới";
         }
         return normalized.length() <= 80 ? normalized : normalized.substring(0, 80);
     }

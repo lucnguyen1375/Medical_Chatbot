@@ -53,6 +53,21 @@ class FhirClientTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["resourceType"], "Bundle")
 
+    async def test_search_patients_uses_count(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            self.assertEqual(str(request.url.copy_with(query=None)), "http://fhir.test/Patient")
+            self.assertEqual(request.url.params["_count"], "20")
+            return httpx.Response(200, json={"resourceType": "Bundle", "entry": []})
+
+        client = FhirClient(
+            base_url="http://fhir.test",
+            transport=httpx.MockTransport(handler),
+        )
+
+        result = await client.search_patients(count=20)
+
+        self.assertEqual(result["resourceType"], "Bundle")
+
 
 if __name__ == "__main__":
     unittest.main()

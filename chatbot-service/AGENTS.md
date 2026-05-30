@@ -10,15 +10,17 @@ Implemented:
 - Health endpoint.
 - FHIR status endpoint.
 - Patient, Observation, Condition, and MedicationRequest read endpoints.
-- Rule-based demo `POST /chat` endpoint for patient, observation, condition, and medication questions.
+- `POST /chat` endpoint for patient, observation, condition, and medication questions.
+- OpenAI tool/function calling intent extraction when `OPENAI_API_KEY` is configured.
+- Rule-based fallback intent extraction for local demos without an LLM API key.
 - Central FHIR HTTP client using HAPI FHIR REST APIs.
 - Normalizers that convert raw FHIR resources/Bundles into compact JSON for app and future LLM usage.
-- Unit tests for normalizers, FHIR client behavior with mocked HTTP transport, and chat route intent/patient parsing.
+- Unit tests for normalizers, FHIR client behavior with mocked HTTP transport, and intent extraction behavior.
 
 Not implemented yet:
 
-- LLM orchestration/tool calling.
-- Real usage, token, and cost tracking.
+- Final LLM answer generation after FHIR tool execution.
+- Real cost estimation from token usage.
 - Authentication/access control.
 - Frontend integration.
 
@@ -61,13 +63,60 @@ GET http://localhost:8000/patients/demo-patient-001/medications
 POST http://localhost:8000/chat
 ```
 
-## Verification Result
+## Intent Extraction
 
-Last checked on 2026-05-29:
+The chat route first extracts a tool plan:
 
 ```text
-python -m py_compile chatbot-service modules: passed
-python -m unittest discover tests: 9 tests passed
+message + optional patient_id
+  -> IntentExtractor
+  -> tool_name + patient_id + optional limit/observation_type
+  -> FHIR retrieval function
+```
+
+When configured, the OpenAI extractor asks the model to select one of these tools:
+
+```text
+get_patient_by_id
+search_patients
+get_observations
+get_conditions
+get_medication_requests
+unsupported_question
+```
+
+Without `OPENAI_API_KEY`, `RuleBasedIntentExtractor` keeps local demo behavior working.
+
+## Evidence Shape
+
+Chat responses now keep both a compact summary and detailed normalized FHIR data:
+
+```json
+{
+  "resource_type": "Observation",
+  "id": "demo-hba1c-detailed-003",
+  "summary": "HbA1c",
+  "data": {
+    "status": "final",
+    "effective_time": "2026-05-24T14:18:00+07:00",
+    "encounter": "Encounter/demo-encounter-004",
+    "value": {"value": 7.2, "unit": "%"},
+    "interpretation": [{"text": "High"}],
+    "reference_range": [{"text": "Non-diabetes reference threshold."}],
+    "note": ["Demo value for testing interpretation and reference range formatting."]
+  }
+}
+```
+
+The normalizer preserves detailed fields for Patient, Encounter, Observation, Condition, and MedicationRequest while keeping the older summary fields compatible.
+
+## Verification Result
+
+Last checked on 2026-05-30:
+
+```text
+python -m unittest discover tests: 34 tests passed
+python -m compileall app api agents fhir tests: passed
 app import: passed
 GET /health: passed
 GET /fhir/status: passed
@@ -76,5 +125,7 @@ GET /patients/demo-patient-001/observations?limit=5: passed
 GET /patients/demo-patient-001/conditions: passed
 GET /patients/demo-patient-001/medications: passed
 POST /chat medication demo: passed
+LLM/tool-call intent extraction fallback: passed
 Chatbot service dev server: http://localhost:8000
+Detailed evidence passthrough via POST /chat: passed
 ```
