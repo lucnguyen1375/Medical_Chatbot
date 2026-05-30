@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -21,7 +22,10 @@ from agents.intent_extractor import (
     IntentExtractor,
     IntentPlan,
     contains_any,
+    extract_patient_search_criteria,
     get_intent_extractor,
+    has_patient_search_criteria,
+    normalize_patient_id,
     normalize_text,
     resolve_patient_id_for_request,
 )
@@ -57,11 +61,12 @@ async def chat(
         request.message,
         provided_patient_id=request.patient_id,
     )
+    plan = _apply_selected_patient_context(request, plan)
 
     try:
         if plan.tool_name == TOOL_SEARCH_PATIENTS:
             return await _finalize_chat_response(
-                await _answer_patients(client, plan.limit),
+                await _answer_patients(client, plan),
                 request.message,
                 plan,
                 answer_generator,
@@ -74,8 +79,11 @@ async def chat(
                     plan,
                     answer_generator,
                 )
+            resolved_patient_id = await _resolve_patient_id_for_tool(client, plan)
+            if isinstance(resolved_patient_id, dict):
+                return await _finalize_chat_response(resolved_patient_id, request.message, plan, answer_generator)
             return await _finalize_chat_response(
-                await _answer_medications(client, plan.patient_id, plan.limit),
+                await _answer_medications(client, resolved_patient_id, plan.limit),
                 request.message,
                 plan,
                 answer_generator,
@@ -88,8 +96,11 @@ async def chat(
                     plan,
                     answer_generator,
                 )
+            resolved_patient_id = await _resolve_patient_id_for_tool(client, plan)
+            if isinstance(resolved_patient_id, dict):
+                return await _finalize_chat_response(resolved_patient_id, request.message, plan, answer_generator)
             return await _finalize_chat_response(
-                await _answer_encounters(client, plan.patient_id, plan.limit),
+                await _answer_encounters(client, resolved_patient_id, plan.limit),
                 request.message,
                 plan,
                 answer_generator,
@@ -102,8 +113,11 @@ async def chat(
                     plan,
                     answer_generator,
                 )
+            resolved_patient_id = await _resolve_patient_id_for_tool(client, plan)
+            if isinstance(resolved_patient_id, dict):
+                return await _finalize_chat_response(resolved_patient_id, request.message, plan, answer_generator)
             return await _finalize_chat_response(
-                await _answer_observations(client, plan.patient_id, plan.limit, plan.observation_type),
+                await _answer_observations(client, resolved_patient_id, plan.limit, plan.observation_type),
                 request.message,
                 plan,
                 answer_generator,
@@ -116,15 +130,21 @@ async def chat(
                     plan,
                     answer_generator,
                 )
+            resolved_patient_id = await _resolve_patient_id_for_tool(client, plan)
+            if isinstance(resolved_patient_id, dict):
+                return await _finalize_chat_response(resolved_patient_id, request.message, plan, answer_generator)
             return await _finalize_chat_response(
-                await _answer_conditions(client, plan.patient_id, plan.limit),
+                await _answer_conditions(client, resolved_patient_id, plan.limit),
                 request.message,
                 plan,
                 answer_generator,
             )
         if plan.tool_name == TOOL_GET_PATIENT:
+            resolved_patient_id = await _resolve_patient_id_for_tool(client, plan)
+            if isinstance(resolved_patient_id, dict):
+                return await _finalize_chat_response(resolved_patient_id, request.message, plan, answer_generator)
             return await _finalize_chat_response(
-                await _answer_patient(client, plan.patient_id),
+                await _answer_patient(client, resolved_patient_id),
                 request.message,
                 plan,
                 answer_generator,
@@ -152,17 +172,33 @@ async def chat(
     return await _finalize_chat_response(payload, request.message, plan, answer_generator)
 
 
-async def _answer_patients(client: FhirClient, limit: int) -> dict[str, Any]:
-    bundle = await client.search_patients(count=limit)
+async def _answer_patients(client: FhirClient, plan: IntentPlan) -> dict[str, Any]:
+    bundle = await client.search_patients_flexible(
+        count=plan.limit,
+        name=plan.search_name,
+        phone=plan.search_phone,
+        birth_date=plan.search_birth_date,
+        identifier=plan.search_identifier,
+    )
     patients = normalize_patient_bundle(bundle)
     if not patients:
         answer = "Không tìm thấy bệnh nhân nào trong FHIR Server."
     else:
         summary = "; ".join(_format_patient_summary(patient) for patient in patients)
+        criteria_text = _format_patient_search_criteria(plan)
+        criteria_prefix = f" phu hop voi {criteria_text}" if criteria_text else ""
         answer = (
             f"Theo dữ liệu FHIR hiện có, hệ thống tìm thấy {len(patients)} bệnh nhân: "
             f"{summary}."
         )
+        if criteria_prefix:
+            answer = f"Theo du lieu FHIR hien co, he thong tim thay {len(patients)} benh nhan{criteria_prefix}: {summary}."
+        if has_patient_search_criteria(plan) and len(patients) > 1:
+            answer = (
+                "Tim thay nhieu benh nhan phu hop. "
+                "Vui long chon dung benh nhan hoac cung cap them ngay sinh, so dien thoai, ma dinh danh: "
+                f"{summary}."
+            )
     return {
         "answer": answer,
         "intent": "patients",
@@ -171,6 +207,7 @@ async def _answer_patients(client: FhirClient, limit: int) -> dict[str, Any]:
             _evidence("Patient", patient.get("id"), _format_patient_summary(patient), patient)
             for patient in patients
         ],
+        **_patient_selection_payload(plan, patients),
         "usage": _zero_usage(),
     }
 
@@ -495,8 +532,43 @@ async def _answer_medications(client: FhirClient, patient_id: str, limit: int) -
     }
 
 
+async def _resolve_patient_id_for_tool(client: FhirClient, plan: IntentPlan) -> str | dict[str, Any]:
+    if not has_patient_search_criteria(plan):
+        return plan.patient_id
+
+    patients = await _search_patients_for_plan(client, plan, limit=3)
+    if len(patients) == 1:
+        patient_id = patients[0].get("id")
+        return patient_id if isinstance(patient_id, str) and patient_id else plan.patient_id
+
+    criteria_text = _format_patient_search_criteria(plan)
+    if not patients:
+        answer = f"Khong tim thay benh nhan phu hop voi {criteria_text or 'tieu chi da cung cap'}."
+    else:
+        summary = "; ".join(_format_patient_summary(patient) for patient in patients)
+        answer = (
+            "Tim thay nhieu benh nhan phu hop. "
+            "Vui long cung cap them ma benh nhan, ngay sinh hoac so dien thoai de xac dinh chinh xac: "
+            f"{summary}."
+        )
+
+    return {
+        "answer": answer,
+        "intent": "patients",
+        "patient_id": None,
+        "evidence": [
+            _evidence("Patient", patient.get("id"), _format_patient_summary(patient), patient)
+            for patient in patients
+        ],
+        **_patient_selection_payload(plan, patients),
+        "usage": _zero_usage(),
+    }
+
+
 def _detect_intent(message: str) -> str:
     text = normalize_text(message)
+    if extract_patient_search_criteria(message):
+        return "patients"
     if _contains_any(text, PATIENT_LIST_KEYWORDS):
         return "patients"
     if _contains_any(text, MEDICATION_KEYWORDS):
@@ -516,6 +588,40 @@ def _detect_intent(message: str) -> str:
 
 def _resolve_patient_id(request: ChatRequest) -> str:
     return resolve_patient_id_for_request(request.message, request.patient_id)
+
+
+def _apply_selected_patient_context(request: ChatRequest, plan: IntentPlan) -> IntentPlan:
+    selected_patient_id = normalize_patient_id(request.patient_id)
+    if not selected_patient_id or not has_patient_search_criteria(plan):
+        return plan
+
+    text = normalize_text(request.message)
+    tool_name = plan.tool_name
+    if tool_name == TOOL_SEARCH_PATIENTS:
+        if contains_any(text, PATIENT_CONTACT_KEYWORDS) or contains_any(text, PATIENT_INFO_KEYWORDS):
+            tool_name = TOOL_GET_PATIENT
+        elif contains_any(text, MEDICATION_KEYWORDS):
+            tool_name = TOOL_GET_MEDICATIONS
+        elif contains_any(text, OBSERVATION_KEYWORDS):
+            tool_name = TOOL_GET_OBSERVATIONS
+        elif contains_any(text, ENCOUNTER_KEYWORDS):
+            tool_name = TOOL_GET_ENCOUNTERS
+        elif contains_any(text, CONDITION_KEYWORDS):
+            tool_name = TOOL_GET_CONDITIONS
+        else:
+            return plan
+
+    return replace(
+        plan,
+        tool_name=tool_name,
+        patient_id=selected_patient_id,
+        search_name=None,
+        search_phone=None,
+        search_birth_date=None,
+        search_identifier=None,
+        all_patients=False,
+        source=f"{plan.source}_selected_patient",
+    )
 
 
 def _format_observation(observation: dict[str, Any]) -> str:
@@ -604,12 +710,56 @@ async def _get_patients(client: FhirClient, limit: int) -> list[dict[str, Any]]:
     return normalize_patient_bundle(bundle)
 
 
+async def _search_patients_for_plan(client: FhirClient, plan: IntentPlan, limit: int | None = None) -> list[dict[str, Any]]:
+    bundle = await client.search_patients_flexible(
+        count=limit or plan.limit,
+        name=plan.search_name,
+        phone=plan.search_phone,
+        birth_date=plan.search_birth_date,
+        identifier=plan.search_identifier,
+    )
+    return normalize_patient_bundle(bundle)
+
+
+def _format_patient_search_criteria(plan: IntentPlan) -> str:
+    parts = []
+    if plan.search_name:
+        parts.append(f"ten '{plan.search_name}'")
+    if plan.search_phone:
+        parts.append(f"so dien thoai '{plan.search_phone}'")
+    if plan.search_birth_date:
+        parts.append(f"ngay sinh '{plan.search_birth_date}'")
+    if plan.search_identifier:
+        parts.append(f"ma dinh danh '{plan.search_identifier}'")
+    return ", ".join(parts)
+
+
 def _evidence(resource_type: str, resource_id: Any, summary: Any, data: Any | None = None) -> dict[str, Any]:
     return {
         "resource_type": resource_type,
         "id": resource_id,
         "summary": summary,
         "data": data,
+    }
+
+
+def _patient_selection_payload(plan: IntentPlan, patients: list[dict[str, Any]]) -> dict[str, Any]:
+    if not has_patient_search_criteria(plan) or len(patients) <= 1:
+        return {}
+    return {
+        "needs_patient_selection": True,
+        "patient_candidates": [_patient_candidate(patient) for patient in patients],
+    }
+
+
+def _patient_candidate(patient: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": patient.get("id"),
+        "name": patient.get("name"),
+        "gender": patient.get("gender"),
+        "birth_date": patient.get("birth_date"),
+        "phone": patient.get("phone"),
+        "identifier": patient.get("identifier"),
     }
 
 
@@ -641,6 +791,14 @@ async def _finalize_chat_response(
     answer_generator: AnswerGenerator,
 ) -> dict[str, Any]:
     payload = _with_plan_metadata(payload, plan)
+    if payload.get("needs_patient_selection"):
+        payload["answer_source"] = "template_patient_selection"
+        payload["answer_usage"] = _zero_usage()
+        payload["usage"] = combine_usage(plan.usage)
+        payload.setdefault("patient_id", None)
+        payload["pending_question"] = question
+        return payload
+
     template_answer = payload.get("answer") or ""
     answer_result = await answer_generator.generate(
         question=question,
@@ -667,6 +825,13 @@ def _with_plan_metadata(payload: dict[str, Any], plan: IntentPlan) -> dict[str, 
         payload["all_patients"] = True
     if plan.observation_type:
         payload["observation_type"] = plan.observation_type
+    if has_patient_search_criteria(plan):
+        payload["patient_search"] = {
+            "name": plan.search_name,
+            "phone": plan.search_phone,
+            "birth_date": plan.search_birth_date,
+            "identifier": plan.search_identifier,
+        }
     return payload
 
 

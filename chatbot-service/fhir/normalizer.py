@@ -215,7 +215,7 @@ def _first(items: Any) -> dict[str, Any]:
 def _human_name(name: dict[str, Any]) -> str | None:
     given = name.get("given") or []
     family = name.get("family")
-    parts = [*given, family]
+    parts = [family, *given]
     text = " ".join(part for part in parts if part)
     return text or name.get("text")
 

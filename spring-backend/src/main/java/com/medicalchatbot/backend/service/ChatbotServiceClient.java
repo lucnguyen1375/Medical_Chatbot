@@ -29,6 +29,30 @@ public class ChatbotServiceClient {
                 .body(JsonNode.class);
     }
 
+    public JsonNode searchPatients(String name, String phone, String birthDate, String identifier, int limit) {
+        return chatbotRestClient.get()
+                .uri(uriBuilder -> {
+                    var builder = uriBuilder
+                            .path("/patients")
+                            .queryParam("limit", limit);
+                    if (name != null && !name.isBlank()) {
+                        builder.queryParam("name", name);
+                    }
+                    if (phone != null && !phone.isBlank()) {
+                        builder.queryParam("phone", phone);
+                    }
+                    if (birthDate != null && !birthDate.isBlank()) {
+                        builder.queryParam("birth_date", birthDate);
+                    }
+                    if (identifier != null && !identifier.isBlank()) {
+                        builder.queryParam("identifier", identifier);
+                    }
+                    return builder.build();
+                })
+                .retrieve()
+                .body(JsonNode.class);
+    }
+
     public JsonNode getPatientObservations(String patientId, int limit) {
         return chatbotRestClient.get()
                 .uri(uriBuilder -> uriBuilder

@@ -10,6 +10,8 @@ Implemented:
 - Health endpoint.
 - FHIR status endpoint.
 - Patient, Encounter, Observation, Condition, and MedicationRequest read endpoints.
+- Patient search by FHIR REST criteria: name, phone, birth date, and identifier.
+- Ambiguous patient handling with `needs_patient_selection`, `patient_candidates`, and `pending_question`.
 - `POST /chat` endpoint for patient, observation, condition, and medication questions.
 - OpenAI tool/function calling intent extraction when `OPENAI_API_KEY` is configured.
 - Rule-based fallback intent extraction for local demos without an LLM API key.
@@ -56,6 +58,7 @@ Use these after the server starts:
 ```text
 GET http://localhost:8000/health
 GET http://localhost:8000/fhir/status
+GET http://localhost:8000/patients?name=Nguyen&limit=5
 GET http://localhost:8000/patients/demo-patient-001
 GET http://localhost:8000/patients/demo-patient-005/encounters?limit=5
 GET http://localhost:8000/patients/demo-patient-001/observations?limit=5
@@ -71,7 +74,7 @@ The chat route first extracts a tool plan:
 ```text
 message + optional patient_id
   -> IntentExtractor
-  -> tool_name + patient_id + optional limit/observation_type
+  -> tool_name + patient_id/search criteria + optional limit/observation_type
   -> FHIR retrieval function
 ```
 
@@ -102,7 +105,7 @@ If OpenAI answer generation is enabled, the model writes the final Vietnamese an
 Relevant response fields:
 
 ```text
-answer_source: llm | template | template_fallback | template_no_evidence
+answer_source: llm | template | template_fallback | template_no_evidence | template_patient_selection
 answer_usage: token usage for answer generation only
 usage: combined intent + answer usage
 ```
@@ -135,11 +138,12 @@ The normalizer preserves detailed fields for Patient, Encounter, Observation, Co
 Last checked on 2026-05-30:
 
 ```text
-python -m unittest discover tests: 42 tests passed
-python -m compileall app api agents fhir tests: passed
+python -m unittest discover tests: 52 tests passed
+python -m py_compile agents\intent_extractor.py api\chat_routes.py api\fhir_routes.py fhir\client.py agents\answer_generator.py: passed
 app import: passed
 GET /health: passed
 GET /fhir/status: passed
+GET /patients?name=Nguyen&limit=5: passed
 GET /patients/demo-patient-001: passed
 GET /patients/demo-patient-001/observations?limit=5: passed
 GET /patients/demo-patient-001/conditions: passed
@@ -151,4 +155,7 @@ Detailed evidence passthrough via POST /chat: passed
 LLM final answer via POST /chat: passed
 Spring passthrough of answer_source and answer_usage: passed
 Encounter direct endpoint and chat flow: passed
+Patient search direct endpoint and chat flow: passed
+Ambiguous patient candidate payload unit test: passed
+Selected patient_id clears search criteria before resource retrieval: passed
 ```

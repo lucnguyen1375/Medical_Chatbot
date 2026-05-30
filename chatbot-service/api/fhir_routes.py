@@ -8,6 +8,7 @@ from fhir.normalizer import (
     normalize_medication_request_bundle,
     normalize_observation_bundle,
     normalize_patient,
+    normalize_patient_bundle,
 )
 
 
@@ -35,6 +36,36 @@ async def fhir_status(client: FhirClient = Depends(get_fhir_client)) -> dict:
     return {
         "status": "ok",
         "fhir": normalize_capability_statement(metadata),
+    }
+
+
+@router.get("/patients")
+async def search_patients(
+    name: str | None = Query(default=None, min_length=1),
+    phone: str | None = Query(default=None, min_length=1),
+    birth_date: str | None = Query(default=None, min_length=4),
+    identifier: str | None = Query(default=None, min_length=1),
+    limit: int = Query(default=20, ge=1, le=50),
+    client: FhirClient = Depends(get_fhir_client),
+) -> dict:
+    try:
+        bundle = await client.search_patients_flexible(
+            count=limit,
+            name=name,
+            phone=phone,
+            birth_date=birth_date,
+            identifier=identifier,
+        )
+    except FhirClientError as exc:
+        raise translate_fhir_error(exc) from exc
+    return {
+        "criteria": {
+            "name": name,
+            "phone": phone,
+            "birth_date": birth_date,
+            "identifier": identifier,
+        },
+        "patients": normalize_patient_bundle(bundle),
     }
 
 

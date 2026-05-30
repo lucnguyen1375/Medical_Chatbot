@@ -2,8 +2,10 @@ import unittest
 
 from api.chat_routes import (
     _detect_intent,
+    _apply_selected_patient_context,
     _finalize_chat_response,
     _observation_matches_type,
+    _resolve_patient_id_for_tool,
     _resolve_patient_id,
     ChatRequest,
 )
@@ -20,6 +22,7 @@ from agents.intent_extractor import (
     apply_all_patient_scope,
     add_observation_type_hint,
     apply_patient_id_hint,
+    apply_patient_search_criteria_hint,
     enforce_patient_list_routing,
     enforce_contact_detail_routing,
     plan_from_tool_call,
@@ -35,6 +38,34 @@ class FakeAnswerGenerator:
         )
 
 
+class FakePatientSearchClient:
+    async def search_patients_flexible(self, **kwargs):
+        return {
+            "entry": [
+                {
+                    "resource": {
+                        "resourceType": "Patient",
+                        "id": "demo-patient-001",
+                        "name": [{"family": "Nguyen", "given": ["Van A"]}],
+                        "gender": "male",
+                        "birthDate": "2003-01-01",
+                        "telecom": [{"system": "phone", "value": "0900000001"}],
+                    }
+                },
+                {
+                    "resource": {
+                        "resourceType": "Patient",
+                        "id": "demo-patient-006",
+                        "name": [{"family": "Nguyen", "given": ["Van B"]}],
+                        "gender": "male",
+                        "birthDate": "2004-02-02",
+                        "telecom": [{"system": "phone", "value": "0900000006"}],
+                    }
+                },
+            ]
+        }
+
+
 class ChatRoutesTests(unittest.TestCase):
     def test_detects_medication_intent(self) -> None:
         self.assertEqual(_detect_intent("Patient/demo-patient-001 has what medications?"), "medications")
@@ -47,6 +78,9 @@ class ChatRoutesTests(unittest.TestCase):
 
     def test_detects_patient_list_intent(self) -> None:
         self.assertEqual(_detect_intent("danh sach benh nhan hien co"), "patients")
+
+    def test_detects_patient_search_by_name_intent(self) -> None:
+        self.assertEqual(_detect_intent("tim benh nhan Nguyen Van A"), "patients")
 
     def test_detects_vietnamese_encounter_intent(self) -> None:
         self.assertEqual(_detect_intent("lich su kham cua benh nhan 001"), "encounters")
@@ -93,8 +127,58 @@ class ChatRoutesTests(unittest.TestCase):
 
         self.assertEqual(_resolve_patient_id(request), "demo-patient-001")
 
+    def test_selected_patient_context_clears_search_criteria_for_resource_tool(self) -> None:
+        request = ChatRequest(message="thuoc cua benh nhan Nguyen", patient_id="demo-patient-006")
+        plan = IntentPlan(
+            tool_name=TOOL_GET_MEDICATIONS,
+            patient_id="demo-patient-006",
+            search_name="Nguyen",
+        )
+
+        result = _apply_selected_patient_context(request, plan)
+
+        self.assertEqual(result.tool_name, TOOL_GET_MEDICATIONS)
+        self.assertEqual(result.patient_id, "demo-patient-006")
+        self.assertIsNone(result.search_name)
+
+    def test_selected_patient_context_turns_contact_search_into_patient_lookup(self) -> None:
+        request = ChatRequest(message="so dien thoai cua Nguyen", patient_id="demo-patient-006")
+        plan = IntentPlan(
+            tool_name=TOOL_SEARCH_PATIENTS,
+            patient_id="demo-patient-006",
+            search_name="Nguyen",
+        )
+
+        result = _apply_selected_patient_context(request, plan)
+
+        self.assertEqual(result.tool_name, TOOL_GET_PATIENT)
+        self.assertEqual(result.patient_id, "demo-patient-006")
+        self.assertIsNone(result.search_name)
+
 
 class IntentExtractorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ambiguous_patient_resolution_returns_candidates_without_llm(self) -> None:
+        plan = IntentPlan(
+            tool_name=TOOL_GET_MEDICATIONS,
+            patient_id="demo-patient-001",
+            search_name="Nguyen",
+            source="rules",
+        )
+
+        payload = await _resolve_patient_id_for_tool(FakePatientSearchClient(), plan)
+        result = await _finalize_chat_response(
+            payload,
+            "thuoc cua benh nhan Nguyen",
+            plan,
+            FakeAnswerGenerator(),
+        )
+
+        self.assertTrue(result["needs_patient_selection"])
+        self.assertEqual(len(result["patient_candidates"]), 2)
+        self.assertEqual(result["patient_candidates"][0]["id"], "demo-patient-001")
+        self.assertEqual(result["answer_source"], "template_patient_selection")
+        self.assertEqual(result["pending_question"], "thuoc cua benh nhan Nguyen")
+
     async def test_finalize_chat_response_adds_llm_answer_metadata_and_combined_usage(self) -> None:
         payload = {
             "answer": "Template answer",
@@ -146,6 +230,25 @@ class IntentExtractorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(plan.tool_name, TOOL_SEARCH_PATIENTS)
         self.assertEqual(plan.intent, "patients")
         self.assertEqual(plan.limit, 20)
+
+    async def test_rule_based_extractor_routes_patient_name_search(self) -> None:
+        plan = await RuleBasedIntentExtractor().extract("tim benh nhan Nguyen Van A")
+
+        self.assertEqual(plan.tool_name, TOOL_SEARCH_PATIENTS)
+        self.assertEqual(plan.search_name, "Nguyen Van A")
+
+    async def test_rule_based_extractor_keeps_search_criteria_for_named_medication_question(self) -> None:
+        plan = await RuleBasedIntentExtractor().extract("thuoc cua benh nhan Thi B Tran")
+
+        self.assertEqual(plan.tool_name, TOOL_GET_MEDICATIONS)
+        self.assertEqual(plan.search_name, "Thi B Tran")
+
+    async def test_rule_based_extractor_extracts_phone_and_birth_date(self) -> None:
+        plan = await RuleBasedIntentExtractor().extract("tim benh nhan sdt 0900 000 001 sinh ngay 01/01/2003")
+
+        self.assertEqual(plan.tool_name, TOOL_SEARCH_PATIENTS)
+        self.assertEqual(plan.search_phone, "0900000001")
+        self.assertEqual(plan.search_birth_date, "2003-01-01")
 
     async def test_rule_based_extractor_routes_all_patient_medications(self) -> None:
         plan = await RuleBasedIntentExtractor().extract("tat ca benh nhan dang dung thuoc gi")
@@ -229,6 +332,15 @@ class IntentExtractorTests(unittest.IsolatedAsyncioTestCase):
         routed = apply_patient_id_hint("so dien thoai cua benh nhan 004", "demo-patient-001", plan)
 
         self.assertEqual(routed.patient_id, "demo-patient-004")
+
+    def test_patient_search_criteria_hint_adds_name_to_llm_plan(self) -> None:
+        plan = IntentPlan(tool_name=TOOL_GET_MEDICATIONS, patient_id="demo-patient-001", source="llm")
+
+        routed = apply_patient_search_criteria_hint("thuoc cua benh nhan Thi B Tran", plan)
+
+        self.assertEqual(routed.tool_name, TOOL_GET_MEDICATIONS)
+        self.assertEqual(routed.search_name, "Thi B Tran")
+        self.assertEqual(routed.source, "llm_guardrail")
 
     def test_plan_from_tool_call_prefers_provided_patient_id(self) -> None:
         plan = plan_from_tool_call(

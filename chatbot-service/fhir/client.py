@@ -29,8 +29,61 @@ class FhirClient:
     async def get_patient(self, patient_id: str) -> dict[str, Any]:
         return await self._get(f"Patient/{patient_id}")
 
-    async def search_patients(self, *, count: int = 20) -> dict[str, Any]:
-        return await self._get("Patient", params={"_count": count})
+    async def search_patients(
+        self,
+        *,
+        count: int = 20,
+        name: str | None = None,
+        phone: str | None = None,
+        birth_date: str | None = None,
+        identifier: str | None = None,
+    ) -> dict[str, Any]:
+        params: dict[str, str | int] = {"_count": count}
+        if name:
+            params["name"] = name
+        if phone:
+            params["phone"] = phone
+        if birth_date:
+            params["birthdate"] = birth_date
+        if identifier:
+            params["identifier"] = identifier
+        return await self._get("Patient", params=params)
+
+    async def search_patients_flexible(
+        self,
+        *,
+        count: int = 20,
+        name: str | None = None,
+        phone: str | None = None,
+        birth_date: str | None = None,
+        identifier: str | None = None,
+    ) -> dict[str, Any]:
+        bundle = await self.search_patients(
+            count=count,
+            name=name,
+            phone=phone,
+            birth_date=birth_date,
+            identifier=identifier,
+        )
+        if bundle.get("entry") or not name or len(name.split()) < 2:
+            return bundle
+
+        seen_tokens: set[str] = set()
+        for token in reversed(name.split()):
+            token = token.strip(" .,'-")
+            if len(token) < 2 or token.lower() in seen_tokens:
+                continue
+            seen_tokens.add(token.lower())
+            token_bundle = await self.search_patients(
+                count=count,
+                name=token,
+                phone=phone,
+                birth_date=birth_date,
+                identifier=identifier,
+            )
+            if token_bundle.get("entry"):
+                return token_bundle
+        return bundle
 
     async def search_patient_resources(
         self,

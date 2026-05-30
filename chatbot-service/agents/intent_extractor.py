@@ -82,6 +82,10 @@ PATIENT_INFO_KEYWORDS = ["patient", "information", "info", "thong tin", "benh nh
 class IntentPlan:
     tool_name: str
     patient_id: str = DEFAULT_PATIENT_ID
+    search_name: str | None = None
+    search_phone: str | None = None
+    search_birth_date: str | None = None
+    search_identifier: str | None = None
     observation_type: str | None = None
     limit: int = 5
     all_patients: bool = False
@@ -107,12 +111,15 @@ class RuleBasedIntentExtractor:
     async def extract(self, message: str, provided_patient_id: str | None = None) -> IntentPlan:
         patient_id = resolve_patient_id_for_request(message, provided_patient_id)
         text = normalize_text(message)
+        search_criteria = extract_patient_search_criteria(message)
+        has_search_criteria = bool(search_criteria)
 
         all_patient_scope = is_patient_list_request(message) and not resolve_explicit_patient_id(message)
         if contains_any(text, MEDICATION_KEYWORDS):
             return IntentPlan(
                 tool_name=TOOL_GET_MEDICATIONS,
                 patient_id=patient_id,
+                **search_criteria,
                 limit=20,
                 all_patients=all_patient_scope,
             )
@@ -120,6 +127,7 @@ class RuleBasedIntentExtractor:
             return IntentPlan(
                 tool_name=TOOL_GET_OBSERVATIONS,
                 patient_id=patient_id,
+                **search_criteria,
                 observation_type=infer_observation_type(message),
                 limit=5,
                 all_patients=all_patient_scope,
@@ -128,20 +136,23 @@ class RuleBasedIntentExtractor:
             return IntentPlan(
                 tool_name=TOOL_GET_ENCOUNTERS,
                 patient_id=patient_id,
+                **search_criteria,
                 limit=5,
                 all_patients=all_patient_scope,
             )
         if contains_any(text, PATIENT_CONTACT_KEYWORDS):
-            return IntentPlan(tool_name=TOOL_GET_PATIENT, patient_id=patient_id)
+            tool_name = TOOL_SEARCH_PATIENTS if has_search_criteria else TOOL_GET_PATIENT
+            return IntentPlan(tool_name=tool_name, patient_id=patient_id, **search_criteria)
         if contains_any(text, CONDITION_KEYWORDS):
             return IntentPlan(
                 tool_name=TOOL_GET_CONDITIONS,
                 patient_id=patient_id,
+                **search_criteria,
                 limit=20,
                 all_patients=all_patient_scope,
             )
-        if all_patient_scope:
-            return IntentPlan(tool_name=TOOL_SEARCH_PATIENTS, patient_id=patient_id, limit=20)
+        if all_patient_scope or has_search_criteria:
+            return IntentPlan(tool_name=TOOL_SEARCH_PATIENTS, patient_id=patient_id, **search_criteria, limit=20)
         if contains_any(text, PATIENT_INFO_KEYWORDS):
             return IntentPlan(tool_name=TOOL_GET_PATIENT, patient_id=patient_id)
 
@@ -170,7 +181,8 @@ class OpenAIIntentExtractor:
             "If the user did not provide a patient id, use demo-patient-001 for local demo. "
             "Vietnamese 'benh nhan' means patient, not condition. "
             "Questions about all patients, patient list, 'tat ca benh nhan', or 'danh sach benh nhan' must use search_patients. "
-            "Questions about phone, contact, 'so dien thoai', or 'dien thoai' must use get_patient_by_id. "
+            "Questions that identify a patient by name, phone, birth date, or identifier must use search_patients unless a clear FHIR patient id is provided. "
+            "Questions about phone, contact, 'so dien thoai', or 'dien thoai' must use get_patient_by_id only when a patient id is provided; otherwise use search_patients with name or phone criteria. "
             "Questions about encounters, visits, appointments, 'lan kham', 'lich su kham', or 'kham gan nhat' must use get_encounters."
         )
         user_prompt = {
@@ -213,6 +225,7 @@ class OpenAIIntentExtractor:
         )
         plan = enforce_patient_list_routing(message, plan)
         plan = apply_all_patient_scope(message, plan)
+        plan = apply_patient_search_criteria_hint(message, plan)
         plan = apply_patient_id_hint(message, provided_patient_id, plan)
         plan = enforce_contact_detail_routing(message, plan)
         return add_observation_type_hint(message, plan)
@@ -262,6 +275,10 @@ def plan_from_tool_call(
     return IntentPlan(
         tool_name=tool_name,
         patient_id=patient_id,
+        search_name=string_or_none(arguments.get("name")),
+        search_phone=normalize_phone(string_or_none(arguments.get("phone"))),
+        search_birth_date=normalize_birth_date(string_or_none(arguments.get("birth_date"))),
+        search_identifier=string_or_none(arguments.get("identifier")),
         observation_type=string_or_none(arguments.get("observation_type")),
         limit=limit,
         all_patients=False,
@@ -284,11 +301,17 @@ def parse_tool_arguments(raw_arguments: str | None) -> dict[str, Any]:
 def enforce_contact_detail_routing(message: str, plan: IntentPlan) -> IntentPlan:
     if plan.tool_name == TOOL_GET_PATIENT:
         return plan
+    if has_patient_search_criteria(plan):
+        return plan
     if not contains_any(normalize_text(message), PATIENT_CONTACT_KEYWORDS):
         return plan
     return IntentPlan(
         tool_name=TOOL_GET_PATIENT,
         patient_id=plan.patient_id,
+        search_name=plan.search_name,
+        search_phone=plan.search_phone,
+        search_birth_date=plan.search_birth_date,
+        search_identifier=plan.search_identifier,
         observation_type=plan.observation_type,
         limit=plan.limit,
         all_patients=plan.all_patients,
@@ -306,6 +329,10 @@ def enforce_patient_list_routing(message: str, plan: IntentPlan) -> IntentPlan:
     return IntentPlan(
         tool_name=TOOL_SEARCH_PATIENTS,
         patient_id=plan.patient_id,
+        search_name=plan.search_name,
+        search_phone=plan.search_phone,
+        search_birth_date=plan.search_birth_date,
+        search_identifier=plan.search_identifier,
         observation_type=plan.observation_type,
         limit=plan.limit,
         all_patients=plan.all_patients,
@@ -336,6 +363,10 @@ def apply_all_patient_scope(message: str, plan: IntentPlan) -> IntentPlan:
     return IntentPlan(
         tool_name=tool_name,
         patient_id=plan.patient_id,
+        search_name=plan.search_name,
+        search_phone=plan.search_phone,
+        search_birth_date=plan.search_birth_date,
+        search_identifier=plan.search_identifier,
         observation_type=plan.observation_type,
         limit=plan.limit,
         all_patients=True,
@@ -352,11 +383,40 @@ def apply_patient_id_hint(message: str, provided_patient_id: str | None, plan: I
     return IntentPlan(
         tool_name=plan.tool_name,
         patient_id=explicit_patient_id,
+        search_name=plan.search_name,
+        search_phone=plan.search_phone,
+        search_birth_date=plan.search_birth_date,
+        search_identifier=plan.search_identifier,
         observation_type=plan.observation_type,
         limit=plan.limit,
         all_patients=plan.all_patients,
         reason=plan.reason,
         source=plan.source,
+        usage=plan.usage,
+    )
+
+
+def apply_patient_search_criteria_hint(message: str, plan: IntentPlan) -> IntentPlan:
+    if has_patient_search_criteria(plan) or resolve_explicit_patient_id(message):
+        return plan
+
+    criteria = extract_patient_search_criteria(message)
+    if not criteria:
+        return plan
+
+    tool_name = TOOL_SEARCH_PATIENTS if plan.tool_name == TOOL_GET_PATIENT else plan.tool_name
+    return IntentPlan(
+        tool_name=tool_name,
+        patient_id=plan.patient_id,
+        search_name=criteria.get("search_name"),
+        search_phone=criteria.get("search_phone"),
+        search_birth_date=criteria.get("search_birth_date"),
+        search_identifier=criteria.get("search_identifier"),
+        observation_type=plan.observation_type,
+        limit=plan.limit,
+        all_patients=plan.all_patients,
+        reason=plan.reason,
+        source=f"{plan.source}_guardrail",
         usage=plan.usage,
     )
 
@@ -370,6 +430,10 @@ def add_observation_type_hint(message: str, plan: IntentPlan) -> IntentPlan:
     return IntentPlan(
         tool_name=plan.tool_name,
         patient_id=plan.patient_id,
+        search_name=plan.search_name,
+        search_phone=plan.search_phone,
+        search_birth_date=plan.search_birth_date,
+        search_identifier=plan.search_identifier,
         observation_type=observation_type,
         limit=plan.limit,
         all_patients=plan.all_patients,
@@ -396,6 +460,154 @@ def infer_observation_type(message: str) -> str | None:
 
 def is_patient_list_request(message: str) -> bool:
     return contains_any(normalize_text(message), PATIENT_LIST_KEYWORDS)
+
+
+def has_patient_search_criteria(plan: IntentPlan) -> bool:
+    return any([
+        plan.search_name,
+        plan.search_phone,
+        plan.search_birth_date,
+        plan.search_identifier,
+    ])
+
+
+def extract_patient_search_criteria(message: str) -> dict[str, str]:
+    if resolve_explicit_patient_id(message) or is_patient_list_request(message):
+        return {}
+
+    criteria: dict[str, str] = {}
+    phone = extract_phone(message)
+    if phone:
+        criteria["search_phone"] = phone
+
+    birth_date = extract_birth_date(message)
+    if birth_date:
+        criteria["search_birth_date"] = birth_date
+
+    identifier = extract_identifier(message)
+    if identifier:
+        criteria["search_identifier"] = identifier
+
+    name = extract_patient_name(message)
+    if name:
+        criteria["search_name"] = name
+
+    return criteria
+
+
+def extract_phone(message: str) -> str | None:
+    match = re.search(r"(?<!\d)(?:\+?84|0)[\d\s.-]{8,14}\d(?!\d)", message)
+    if not match:
+        return None
+    return normalize_phone(match.group(0))
+
+
+def normalize_phone(value: str | None) -> str | None:
+    if not value:
+        return None
+    digits = re.sub(r"\D", "", value)
+    if digits.startswith("84") and len(digits) >= 10:
+        digits = "0" + digits[2:]
+    return digits or None
+
+
+def extract_birth_date(message: str) -> str | None:
+    iso_match = re.search(r"\b(19|20)\d{2}-\d{2}-\d{2}\b", message)
+    if iso_match:
+        return iso_match.group(0)
+
+    date_match = re.search(r"\b([0-3]?\d)[/-]([0-1]?\d)[/-]((?:19|20)\d{2})\b", message)
+    if not date_match:
+        return None
+    day = int(date_match.group(1))
+    month = int(date_match.group(2))
+    year = int(date_match.group(3))
+    if not (1 <= day <= 31 and 1 <= month <= 12):
+        return None
+    return f"{year:04d}-{month:02d}-{day:02d}"
+
+
+def normalize_birth_date(value: str | None) -> str | None:
+    if not value:
+        return None
+    parsed = extract_birth_date(value)
+    return parsed or value.strip()
+
+
+def extract_identifier(message: str) -> str | None:
+    match = re.search(
+        r"\b(?:identifier|ma dinh danh|mã định danh|cccd|cmnd|bhyt)\s*[:#-]?\s*([A-Za-z0-9.-]{4,})",
+        message,
+        flags=re.IGNORECASE,
+    )
+    return match.group(1) if match else None
+
+
+def extract_patient_name(message: str) -> str | None:
+    if contains_any(normalize_text(message), ["tat ca", "danh sach", "liet ke", "toan bo"]):
+        return None
+
+    patterns = [
+        r"(?:bệnh nhân|benh nhan|patient)\s+([A-Za-zÀ-ỹ][A-Za-zÀ-ỹ\s.'-]{1,80})",
+        r"(?:tên|ten|name)\s+(?:là|la)?\s*([A-Za-zÀ-ỹ][A-Za-zÀ-ỹ\s.'-]{1,80})",
+        r"(?:của|cua)\s+(?:bệnh nhân|benh nhan)?\s*([A-Za-zÀ-ỹ][A-Za-zÀ-ỹ\s.'-]{1,80})",
+        r"(?:tìm|tim|search|find)\s+(?:bệnh nhân|benh nhan|patient)?\s*([A-Za-zÀ-ỹ][A-Za-zÀ-ỹ\s.'-]{1,80})",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, message, flags=re.IGNORECASE)
+        if not match:
+            continue
+        cleaned = clean_name_candidate(match.group(1))
+        if cleaned:
+            return cleaned
+    return None
+
+
+def clean_name_candidate(candidate: str) -> str | None:
+    value = re.sub(r"\s+", " ", candidate).strip(" .,'-")
+    if not value:
+        return None
+
+    stop_phrases = [
+        " sinh ngay",
+        " ngày sinh",
+        " ngay sinh",
+        " so dien thoai",
+        " số điện thoại",
+        " sdt",
+        " dang",
+        " đang",
+        " co ",
+        " có ",
+        " kham",
+        " khám",
+        " chan doan",
+        " chẩn đoán",
+        " huyet ap",
+        " huyết áp",
+        " thuoc",
+        " thuốc",
+        " thong tin",
+        " thông tin",
+    ]
+    lowered = normalize_text(f" {value} ")
+    cut_at = len(value)
+    for phrase in stop_phrases:
+        index = lowered.find(normalize_text(phrase))
+        if index >= 0:
+            cut_at = min(cut_at, max(0, index - 1))
+    value = value[:cut_at].strip(" .,'-")
+
+    lowered_value = normalize_text(value)
+    if lowered_value.startswith(("sdt", "so dien thoai", "ngay sinh", "sinh ngay", "phone")):
+        return None
+    if lowered_value in {"ai", "nao", "hien co", "tat ca", "danh sach", "benh nhan"}:
+        return None
+    if re.fullmatch(r"\d+", value):
+        return None
+    if len(value) < 2:
+        return None
+    return value
 
 
 def resolve_patient_id_for_request(message: str, provided_patient_id: str | None = None) -> str:
@@ -478,10 +690,26 @@ FHIR_TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": TOOL_SEARCH_PATIENTS,
-            "description": "Search or list patients when the user asks for all patients or the patient list.",
+            "description": "Search or list patients by name, phone, birth date, identifier, or when the user asks for all patients.",
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Patient name from the question, for example Tran Thi B or Nguyen Van A.",
+                    },
+                    "phone": {
+                        "type": "string",
+                        "description": "Patient phone number from the question.",
+                    },
+                    "birth_date": {
+                        "type": "string",
+                        "description": "Patient birth date in YYYY-MM-DD format when available.",
+                    },
+                    "identifier": {
+                        "type": "string",
+                        "description": "Patient business identifier, insurance id, CCCD, or CMND when available.",
+                    },
                     "limit": {
                         "type": "integer",
                         "description": "Maximum number of patients to return.",

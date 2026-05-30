@@ -37,6 +37,7 @@ $env:Path = "$env:JAVA_HOME\bin;$env:Path"
 
 - `GET /api/health`
 - `GET /api/chatbot/status`
+- `GET /api/patients?name=Nguyen&phone=0900000001&birth_date=2003-01-01&identifier=DEMO-001&limit=20`
 - `GET /api/patients/{patientId}`
 - `GET /api/patients/{patientId}/observations?limit=5`
 - `GET /api/patients/{patientId}/conditions?limit=20`

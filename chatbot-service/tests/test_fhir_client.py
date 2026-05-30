@@ -68,6 +68,52 @@ class FhirClientTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["resourceType"], "Bundle")
 
+    async def test_search_patients_uses_search_criteria(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            self.assertEqual(request.url.params["_count"], "10")
+            self.assertEqual(request.url.params["name"], "Nguyen Van A")
+            self.assertEqual(request.url.params["phone"], "0900000001")
+            self.assertEqual(request.url.params["birthdate"], "2003-01-01")
+            self.assertEqual(request.url.params["identifier"], "BN001")
+            return httpx.Response(200, json={"resourceType": "Bundle", "entry": []})
+
+        client = FhirClient(
+            base_url="http://fhir.test",
+            transport=httpx.MockTransport(handler),
+        )
+
+        result = await client.search_patients(
+            count=10,
+            name="Nguyen Van A",
+            phone="0900000001",
+            birth_date="2003-01-01",
+            identifier="BN001",
+        )
+
+        self.assertEqual(result["resourceType"], "Bundle")
+
+    async def test_search_patients_flexible_falls_back_to_name_token(self) -> None:
+        seen_names = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen_names.append(request.url.params["name"])
+            if request.url.params["name"] == "Tran":
+                return httpx.Response(200, json={
+                    "resourceType": "Bundle",
+                    "entry": [{"resource": {"resourceType": "Patient", "id": "demo-patient-002"}}],
+                })
+            return httpx.Response(200, json={"resourceType": "Bundle", "entry": []})
+
+        client = FhirClient(
+            base_url="http://fhir.test",
+            transport=httpx.MockTransport(handler),
+        )
+
+        result = await client.search_patients_flexible(count=5, name="Thi B Tran")
+
+        self.assertEqual(seen_names, ["Thi B Tran", "Tran"])
+        self.assertEqual(result["entry"][0]["resource"]["id"], "demo-patient-002")
+
 
 if __name__ == "__main__":
     unittest.main()

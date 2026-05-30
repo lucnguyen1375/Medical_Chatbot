@@ -34,6 +34,18 @@ public record ChatResponse(
         @JsonProperty("all_patients")
         Boolean allPatients,
 
+        @JsonProperty("patient_search")
+        JsonNode patientSearch,
+
+        @JsonProperty("needs_patient_selection")
+        Boolean needsPatientSelection,
+
+        @JsonProperty("patient_candidates")
+        JsonNode patientCandidates,
+
+        @JsonProperty("pending_question")
+        String pendingQuestion,
+
         JsonNode evidence,
 
         @JsonProperty("answer_usage")

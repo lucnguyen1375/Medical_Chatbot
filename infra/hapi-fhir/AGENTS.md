@@ -20,7 +20,9 @@ infra/hapi-fhir/
   config/
     application.yaml
   seed/
+    ambiguous-patient-demo-data-transaction-bundle.json
     demo-data-transaction-bundle.json
+    detailed-demo-data-transaction-bundle.json
     extended-demo-data-transaction-bundle.json
   scripts/
     wait_for_hapi.py
@@ -82,6 +84,8 @@ Seeded resources:
 - `Patient/demo-patient-002`
 - `Patient/demo-patient-003`
 - `Patient/demo-patient-004`
+- `Patient/demo-patient-005`
+- `Patient/demo-patient-006`
 - `Encounter/demo-encounter-001`
 - `Encounter/demo-encounter-002`
 - `Encounter/demo-encounter-003`
@@ -120,6 +124,7 @@ Demo patient map:
 | `demo-patient-003` | Le Minh C | `0900000003` | type 2 diabetes, glucose, detailed HbA1c, metformin |
 | `demo-patient-004` | Pham Thu D | `0900000004` | hypertension, hyperlipidemia, blood pressure, cholesterol, atorvastatin, losartan |
 | `demo-patient-005` | Hoang Anh E | `0900000005` | asthma, oxygen saturation, temperature, salbutamol inhaler, address/contact/email demo fields |
+| `demo-patient-006` | Nguyen Van B | `0900000006` | ambiguous-name test candidate for patient selection flow |
 
 ## Verified Endpoints
 
@@ -181,6 +186,16 @@ Added detailed Observation resources with interpretation, referenceRange, issued
 Added Condition/demo-condition-006 with severity, onset, asserter, and note
 Added MedicationRequest/demo-medication-006 with dosageInstruction, reasonCode, reasonReference, dispenseRequest, and note
 check_connection.py: passed
+```
+
+Last ambiguous patient seed verification on 2026-05-30:
+
+```text
+Added ambiguous-patient-demo-data-transaction-bundle.json
+Added Patient/demo-patient-006 with family name Nguyen
+seed_fhir_data.py: passed
+Total demo resources in seed files: 42
+Spring chat smoke test for "so dien thoai cua Nguyen": returned candidates demo-patient-001 and demo-patient-006
 ```
 
 ## Important Rules

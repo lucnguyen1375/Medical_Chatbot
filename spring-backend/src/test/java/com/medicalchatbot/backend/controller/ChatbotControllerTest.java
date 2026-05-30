@@ -51,6 +51,30 @@ class ChatbotControllerTest {
     }
 
     @Test
+    void searchPatientsReturnsChatbotServicePayload() throws Exception {
+        when(chatbotServiceClient.searchPatients("Nguyen Van A", null, "2003-01-01", null, 20))
+                .thenReturn(objectMapper.readTree("""
+                        {
+                          "criteria": {
+                            "name": "Nguyen Van A",
+                            "birth_date": "2003-01-01"
+                          },
+                          "patients": [
+                            {
+                              "id": "demo-patient-001",
+                              "name": "Van A Nguyen"
+                            }
+                          ]
+                        }
+                        """));
+
+        mockMvc.perform(get("/api/patients?name=Nguyen Van A&birth_date=2003-01-01"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.patients[0].id").value("demo-patient-001"))
+                .andExpect(jsonPath("$.criteria.name").value("Nguyen Van A"));
+    }
+
+    @Test
     void observationsRejectInvalidLimit() throws Exception {
         mockMvc.perform(get("/api/patients/demo-patient-001/observations?limit=100"))
                 .andExpect(status().isBadRequest())
@@ -92,6 +116,10 @@ class ChatbotControllerTest {
                         null,
                         "demo-patient-001",
                         null,
+                        null,
+                        objectMapper.readTree("null"),
+                        null,
+                        objectMapper.readTree("[]"),
                         null,
                         objectMapper.readTree("[]"),
                         objectMapper.readTree("""

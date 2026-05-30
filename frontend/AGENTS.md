@@ -8,6 +8,7 @@ Implemented:
 - Spring backend URL and patient ID inputs.
 - Full chat flow test through `POST /api/chat`.
 - Response metadata panel for session, intent, tool, patient, evidence, and usage.
+- Selectable patient candidates when the backend returns `needs_patient_selection`.
 
 Planned responsibilities:
 

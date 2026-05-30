@@ -38,6 +38,17 @@ public class ChatbotController {
         return chatbotServiceClient.getStatus();
     }
 
+    @GetMapping("/patients")
+    JsonNode searchPatients(
+            @RequestParam(required = false) String name,
+            @RequestParam(required = false) String phone,
+            @RequestParam(name = "birth_date", required = false) String birthDate,
+            @RequestParam(required = false) String identifier,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(50) int limit
+    ) {
+        return chatbotServiceClient.searchPatients(name, phone, birthDate, identifier, limit);
+    }
+
     @GetMapping("/patients/{patientId}")
     JsonNode patient(@PathVariable String patientId) {
         return chatbotServiceClient.getPatient(patientId);

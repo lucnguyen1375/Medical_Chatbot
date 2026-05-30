@@ -73,6 +73,12 @@ public class ChatApplicationService {
                 chatbotResponse.path("patient_id").asText(null),
                 chatbotResponse.path("observation_type").asText(null),
                 chatbotResponse.has("all_patients") ? chatbotResponse.path("all_patients").asBoolean(false) : null,
+                chatbotResponse.path("patient_search"),
+                chatbotResponse.has("needs_patient_selection")
+                        ? chatbotResponse.path("needs_patient_selection").asBoolean(false)
+                        : null,
+                chatbotResponse.path("patient_candidates"),
+                chatbotResponse.path("pending_question").asText(null),
                 chatbotResponse.path("evidence"),
                 chatbotResponse.path("answer_usage"),
                 chatbotResponse.path("usage")

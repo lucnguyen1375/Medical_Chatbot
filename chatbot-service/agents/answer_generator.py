@@ -169,6 +169,7 @@ def compact_resource_data(data: Any) -> Any:
         "active",
         "status",
         "intent",
+        "identifier",
         "class",
         "type",
         "service_type",

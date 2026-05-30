@@ -25,7 +25,7 @@ class NormalizerTests(unittest.TestCase):
         result = normalize_patient(patient)
 
         self.assertEqual(result["id"], "demo-patient-001")
-        self.assertEqual(result["name"], "Van A Nguyen")
+        self.assertEqual(result["name"], "Nguyen Van A")
         self.assertEqual(result["gender"], "male")
         self.assertEqual(result["phone"], "0900000001")
 
@@ -122,7 +122,7 @@ class NormalizerTests(unittest.TestCase):
         self.assertTrue(result["active"])
         self.assertEqual(result["email"], "demo.patient.005@example.vn")
         self.assertEqual(result["address"][0]["city"], "Ha Noi")
-        self.assertEqual(result["contact"][0]["name"]["text"], "Minh Hoang")
+        self.assertEqual(result["contact"][0]["name"]["text"], "Hoang Minh")
 
     def test_normalize_condition_keeps_detailed_fields(self) -> None:
         condition = {

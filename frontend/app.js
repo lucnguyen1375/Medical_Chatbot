@@ -41,13 +41,22 @@ form.addEventListener("submit", async (event) => {
 
   const message = messageInput.value.trim();
   const patientId = patientIdInput.value.trim();
+
+  if (!message) {
+    return;
+  }
+
+  await submitChat(message, patientId, message);
+});
+
+async function submitChat(message, patientId, displayText) {
   const apiBaseUrl = apiBaseUrlInput.value.trim().replace(/\/$/, "");
 
   if (!message || !apiBaseUrl) {
     return;
   }
 
-  appendMessage("user", message);
+  appendMessage("user", displayText || message);
   messageInput.value = "";
   setStatus("Đang gửi", "loading");
   setFormDisabled(true);
@@ -77,7 +86,7 @@ form.addEventListener("submit", async (event) => {
     }
 
     currentSessionId = data.session_id || currentSessionId;
-    appendMessage("assistant", data.answer || "Không có câu trả lời.");
+    appendMessage("assistant", data.answer || "Không có câu trả lời.", data);
     renderDetails(data);
     setStatus("Sẵn sàng", "ready");
   } catch (error) {
@@ -87,9 +96,9 @@ form.addEventListener("submit", async (event) => {
     setFormDisabled(false);
     messageInput.focus();
   }
-});
+}
 
-function appendMessage(role, text) {
+function appendMessage(role, text, data) {
   const article = document.createElement("article");
   article.className = `message ${role}`;
 
@@ -102,8 +111,82 @@ function appendMessage(role, text) {
     : renderPlainMessage(text);
 
   article.append(label, body);
+  if (role === "assistant") {
+    const candidates = renderPatientCandidates(data);
+    if (candidates) {
+      article.append(candidates);
+    }
+  }
   messages.append(article);
   messages.scrollTop = messages.scrollHeight;
+}
+
+function renderPatientCandidates(data) {
+  if (!data || !data.needs_patient_selection || !Array.isArray(data.patient_candidates)) {
+    return null;
+  }
+
+  const candidates = data.patient_candidates.filter((item) => item && item.id);
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const panel = document.createElement("div");
+  panel.className = "candidate-panel";
+
+  const title = document.createElement("div");
+  title.className = "candidate-title";
+  title.textContent = "Chọn đúng bệnh nhân để tiếp tục";
+  panel.append(title);
+
+  for (const candidate of candidates) {
+    const row = document.createElement("div");
+    row.className = "candidate-row";
+
+    const info = document.createElement("div");
+    info.className = "candidate-info";
+
+    const name = document.createElement("strong");
+    name.textContent = `${candidate.name || "Không rõ tên"} (${candidate.id})`;
+
+    const detail = document.createElement("span");
+    detail.textContent = [
+      candidate.birth_date ? `Sinh: ${candidate.birth_date}` : null,
+      candidate.phone ? `SĐT: ${candidate.phone}` : null,
+      candidate.gender ? `Giới tính: ${formatGender(candidate.gender)}` : null,
+    ].filter(Boolean).join(" | ");
+
+    info.append(name, detail);
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "candidate-button";
+    button.textContent = "Chọn";
+    button.addEventListener("click", () => {
+      patientIdInput.value = candidate.id;
+      const question = data.pending_question || messageInput.value.trim();
+      const label = `Chọn Patient/${candidate.id} - ${candidate.name || "không rõ tên"}`;
+      submitChat(question, candidate.id, label);
+    });
+
+    row.append(info, button);
+    panel.append(row);
+  }
+
+  return panel;
+}
+
+function formatGender(gender) {
+  if (gender === "male") {
+    return "nam";
+  }
+  if (gender === "female") {
+    return "nữ";
+  }
+  if (gender === "other") {
+    return "khác";
+  }
+  return "không rõ";
 }
 
 function renderPlainMessage(text) {

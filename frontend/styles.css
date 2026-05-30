@@ -234,6 +234,52 @@ textarea:focus {
   overflow-wrap: anywhere;
 }
 
+.candidate-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--panel-border);
+}
+
+.candidate-title {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.candidate-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.candidate-info {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.candidate-info strong,
+.candidate-info span {
+  overflow-wrap: anywhere;
+}
+
+.candidate-info span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.candidate-button {
+  min-width: 72px;
+}
+
 .composer {
   display: grid;
   gap: 10px;
