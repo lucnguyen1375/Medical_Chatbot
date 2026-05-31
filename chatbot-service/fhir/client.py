@@ -29,6 +29,9 @@ class FhirClient:
     async def get_patient(self, patient_id: str) -> dict[str, Any]:
         return await self._get(f"Patient/{patient_id}")
 
+    async def get_resource(self, resource_type: str, resource_id: str) -> dict[str, Any]:
+        return await self._get(f"{resource_type}/{resource_id}")
+
     async def search_patients(
         self,
         *,

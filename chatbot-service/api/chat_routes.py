@@ -20,6 +20,7 @@ from agents.intent_extractor import (
     TOOL_GET_OBSERVATIONS,
     TOOL_GET_PATIENT,
     TOOL_SEARCH_PATIENTS,
+    TOOL_UNSUPPORTED,
     IntentExtractor,
     IntentPlan,
     contains_any,
@@ -33,9 +34,13 @@ from agents.intent_extractor import (
 from fhir.client import FhirClient, FhirClientError, get_fhir_client
 from fhir.normalizer import (
     normalize_condition_bundle,
+    normalize_condition,
     normalize_encounter_bundle,
+    normalize_encounter,
     normalize_medication_request_bundle,
+    normalize_medication_request,
     normalize_observation_bundle,
+    normalize_observation,
     normalize_patient,
     normalize_patient_bundle,
 )
@@ -44,11 +49,27 @@ from fhir.normalizer import (
 router = APIRouter(tags=["chat"])
 
 
+class RecentMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ConversationContext(BaseModel):
+    memory_summary: str | None = None
+    active_patient_id: str | None = None
+    last_intent: str | None = None
+    last_tool_name: str | None = None
+    last_resource_type: str | None = None
+    last_resource_id: str | None = None
+    recent_messages: list[RecentMessage] = Field(default_factory=list)
+
+
 class ChatRequest(BaseModel):
     user_id: str = Field(default="demo_user")
     session_id: str | None = None
     message: str = Field(min_length=1)
     patient_id: str | None = None
+    conversation_context: ConversationContext | None = None
 
 
 @router.post("/chat")
@@ -58,13 +79,24 @@ async def chat(
     intent_extractor: IntentExtractor = Depends(get_intent_extractor),
     answer_generator: AnswerGenerator = Depends(get_answer_generator),
 ) -> dict[str, Any]:
+    patient_hint = _patient_id_hint(request)
     plan = await intent_extractor.extract(
         request.message,
-        provided_patient_id=request.patient_id,
+        provided_patient_id=patient_hint,
     )
     plan = _apply_selected_patient_context(request, plan)
+    plan = _apply_context_reference_context(request, plan)
 
     try:
+        context_payload = await _answer_context_resource_if_applicable(client, request, plan)
+        if context_payload:
+            return await _finalize_chat_response(
+                context_payload,
+                request.message,
+                plan,
+                answer_generator,
+            )
+
         if plan.tool_name == TOOL_SEARCH_PATIENTS:
             return await _finalize_chat_response(
                 await _answer_patients(client, plan),
@@ -588,11 +620,20 @@ def _detect_intent(message: str) -> str:
 
 
 def _resolve_patient_id(request: ChatRequest) -> str:
-    return resolve_patient_id_for_request(request.message, request.patient_id)
+    return resolve_patient_id_for_request(request.message, _patient_id_hint(request))
+
+
+def _patient_id_hint(request: ChatRequest) -> str | None:
+    request_patient_id = normalize_patient_id(request.patient_id)
+    if request_patient_id:
+        return request_patient_id
+    if request.conversation_context:
+        return normalize_patient_id(request.conversation_context.active_patient_id)
+    return None
 
 
 def _apply_selected_patient_context(request: ChatRequest, plan: IntentPlan) -> IntentPlan:
-    selected_patient_id = normalize_patient_id(request.patient_id)
+    selected_patient_id = _patient_id_hint(request)
     if not selected_patient_id or not has_patient_search_criteria(plan):
         return plan
 
@@ -623,6 +664,156 @@ def _apply_selected_patient_context(request: ChatRequest, plan: IntentPlan) -> I
         all_patients=False,
         source=f"{plan.source}_selected_patient",
     )
+
+
+def _apply_context_reference_context(request: ChatRequest, plan: IntentPlan) -> IntentPlan:
+    context = request.conversation_context
+    if not context or not _is_context_reference_question(request.message):
+        return plan
+
+    resource_type = _canonical_resource_type(context.last_resource_type)
+    tool_name = _tool_for_resource_type(resource_type)
+    if not tool_name:
+        return plan
+    if plan.tool_name not in {TOOL_UNSUPPORTED, tool_name}:
+        return plan
+
+    patient_id = _patient_id_hint(request) or plan.patient_id
+    return replace(
+        plan,
+        tool_name=tool_name,
+        patient_id=patient_id,
+        search_name=None,
+        search_phone=None,
+        search_birth_date=None,
+        search_identifier=None,
+        all_patients=False,
+        source=f"{plan.source}_context_reference",
+    )
+
+
+async def _answer_context_resource_if_applicable(
+    client: FhirClient,
+    request: ChatRequest,
+    plan: IntentPlan,
+) -> dict[str, Any] | None:
+    context = request.conversation_context
+    if not context or not _is_context_reference_question(request.message):
+        return None
+
+    resource_type = _canonical_resource_type(context.last_resource_type)
+    resource_id = context.last_resource_id
+    if not resource_type or not resource_id:
+        return None
+    if _tool_for_resource_type(resource_type) != plan.tool_name:
+        return None
+
+    resource = await client.get_resource(resource_type, resource_id)
+    normalized = _normalize_single_resource(resource_type, resource)
+    if not normalized:
+        return None
+
+    patient_id = _patient_id_hint(request) or _patient_id_from_resource(normalized) or plan.patient_id
+    summary = _format_resource_summary(resource_type, normalized)
+    return {
+        "answer": (
+            f"Theo ngu canh phien chat, tai nguyen gan nhat la "
+            f"{resource_type}/{resource_id}: {summary}."
+        ),
+        "intent": plan.intent,
+        "patient_id": patient_id,
+        "evidence": [_evidence(resource_type, normalized.get("id"), summary, normalized)],
+        "usage": _zero_usage(),
+    }
+
+
+def _is_context_reference_question(message: str) -> bool:
+    text = f" {normalize_text(message)} "
+    phrases = [
+        " cai do ",
+        " muc do ",
+        " chi so do ",
+        " ket qua do ",
+        " thuoc do ",
+        " lan kham do ",
+        " benh do ",
+        " chan doan do ",
+        " no ",
+        " nay ",
+        " do ",
+        " vua roi ",
+        " truoc do ",
+        " gan nhat ",
+    ]
+    return any(phrase in text for phrase in phrases)
+
+
+def _canonical_resource_type(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    mapping = {
+        "patient": "Patient",
+        "observation": "Observation",
+        "encounter": "Encounter",
+        "condition": "Condition",
+        "medicationrequest": "MedicationRequest",
+        "medication_request": "MedicationRequest",
+        "medication-request": "MedicationRequest",
+    }
+    return mapping.get(normalized)
+
+
+def _tool_for_resource_type(resource_type: str | None) -> str | None:
+    return {
+        "Patient": TOOL_GET_PATIENT,
+        "Observation": TOOL_GET_OBSERVATIONS,
+        "Encounter": TOOL_GET_ENCOUNTERS,
+        "Condition": TOOL_GET_CONDITIONS,
+        "MedicationRequest": TOOL_GET_MEDICATIONS,
+    }.get(resource_type or "")
+
+
+def _normalize_single_resource(resource_type: str, resource: dict[str, Any]) -> dict[str, Any] | None:
+    if resource_type == "Patient":
+        return normalize_patient(resource)
+    if resource_type == "Observation":
+        return normalize_observation(resource)
+    if resource_type == "Encounter":
+        return normalize_encounter(resource)
+    if resource_type == "Condition":
+        return normalize_condition(resource)
+    if resource_type == "MedicationRequest":
+        return normalize_medication_request(resource)
+    return None
+
+
+def _patient_id_from_resource(resource: dict[str, Any]) -> str | None:
+    if resource.get("resource_type") == "Patient":
+        return resource.get("id")
+    subject = resource.get("subject")
+    if isinstance(subject, str) and subject.startswith("Patient/"):
+        return subject.removeprefix("Patient/")
+    patient = resource.get("patient")
+    if isinstance(patient, dict):
+        patient_id = patient.get("id")
+        if isinstance(patient_id, str):
+            return patient_id
+    return None
+
+
+def _format_resource_summary(resource_type: str, resource: dict[str, Any]) -> str:
+    if resource_type == "Observation":
+        return _format_observation(resource)
+    if resource_type == "Encounter":
+        return _format_encounter(resource)
+    if resource_type == "Patient":
+        return _format_patient_summary(resource)
+    if resource_type == "Condition":
+        return _display_vi(resource.get("code") or resource.get("id"))
+    if resource_type == "MedicationRequest":
+        return _display_vi(resource.get("medication") or resource.get("id"))
+    return str(resource.get("id") or resource_type)
 
 
 def _format_observation(observation: dict[str, Any]) -> str:
@@ -815,7 +1006,84 @@ async def _finalize_chat_response(
     if answer_result.reason:
         payload["answer_reason"] = answer_result.reason
     payload["usage"] = combine_usage(plan.usage, answer_result.usage)
+    memory_update = _build_memory_update(payload, plan)
+    if memory_update:
+        payload["memory_update"] = memory_update
     return payload
+
+
+def _build_memory_update(payload: dict[str, Any], plan: IntentPlan) -> dict[str, Any] | None:
+    if payload.get("needs_patient_selection"):
+        return None
+
+    evidence = payload.get("evidence") or []
+    evidence_refs = _evidence_refs(evidence)
+    patient_id = payload.get("patient_id")
+    all_patients = bool(payload.get("all_patients"))
+
+    if all_patients and not evidence_refs:
+        return {
+            "last_intent": payload.get("intent") or plan.intent,
+            "last_tool_name": plan.tool_name,
+            "summary": _memory_summary(payload, patient_id=None, evidence_refs=[]),
+            "evidence_refs": [],
+        }
+
+    if not patient_id and not evidence_refs:
+        return None
+
+    first_ref = evidence_refs[0] if evidence_refs else {}
+    return {
+        "active_patient_id": patient_id if not all_patients else None,
+        "last_intent": payload.get("intent") or plan.intent,
+        "last_tool_name": plan.tool_name,
+        "last_resource_type": first_ref.get("resource_type"),
+        "last_resource_id": first_ref.get("resource_id"),
+        "summary": _memory_summary(payload, patient_id=patient_id, evidence_refs=evidence_refs),
+        "evidence_refs": evidence_refs,
+    }
+
+
+def _evidence_refs(evidence: Any) -> list[dict[str, Any]]:
+    if not isinstance(evidence, list):
+        return []
+    refs: list[dict[str, Any]] = []
+    for item in evidence[:5]:
+        if not isinstance(item, dict):
+            continue
+        resource_type = item.get("resource_type")
+        resource_id = item.get("id")
+        if not resource_type or not resource_id:
+            continue
+        refs.append(
+            {
+                "resource_type": resource_type,
+                "resource_id": resource_id,
+                "summary": item.get("summary"),
+            }
+        )
+    return refs
+
+
+def _memory_summary(
+    payload: dict[str, Any],
+    *,
+    patient_id: Any,
+    evidence_refs: list[dict[str, Any]],
+) -> str:
+    intent = payload.get("intent") or "unknown"
+    if patient_id and evidence_refs:
+        first = evidence_refs[0]
+        return (
+            f"Da xem {first.get('resource_type')}/{first.get('resource_id')} "
+            f"cho Patient/{patient_id}: {first.get('summary') or intent}."
+        )
+    if patient_id:
+        return f"Dang trao doi ve Patient/{patient_id}, intent gan nhat la {intent}."
+    if evidence_refs:
+        first = evidence_refs[0]
+        return f"Da xem {first.get('resource_type')}/{first.get('resource_id')}: {first.get('summary') or intent}."
+    return f"Intent gan nhat la {intent}."
 
 
 def _with_plan_metadata(payload: dict[str, Any], plan: IntentPlan) -> dict[str, Any]:

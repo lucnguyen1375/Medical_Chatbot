@@ -4,7 +4,7 @@ This file tracks project progress. Update it whenever a meaningful feature, inte
 
 ## Current Snapshot
 
-Last updated: 2026-05-31
+Last updated: 2026-06-01
 
 The project currently has an end-to-end demo flow:
 
@@ -18,7 +18,7 @@ Frontend
   -> normalized evidence
   -> LLM Vietnamese answer generation
   -> Spring persists chat history, usage logs, and audit logs
-  -> Frontend displays answer and evidence
+  -> Staff Demo Dashboard displays selected patient context, chat history, answer, and evidence
 ```
 
 Core rule still applies:
@@ -138,7 +138,7 @@ Verified:
 
 ### 4. Frontend Demo UI
 
-Status: Basic demo done
+Status: Replaced by Staff Demo Dashboard milestone
 
 Completed:
 
@@ -153,10 +153,7 @@ Completed:
 
 Remaining:
 
-- Improve patient search UX.
-- Add chat history UI.
-- Improve evidence rendering.
-- Add loading, empty, and error states.
+- Continue improving visual polish and production UX after auth/access control decisions.
 
 ### 5. Ambiguous Patient Handling
 
@@ -226,6 +223,81 @@ Verified:
 - Live Spring smoke test inserted a new `usage_logs` row with `openai`, `gpt-4o-mini`, `chat`, `success`, and `latency_ms`.
 - Live Spring smoke test inserted a new `audit_logs` row with action `CHAT_COMPLETED`.
 
+### 7. Staff Demo Dashboard And Chat History
+
+Status: Done for current demo scope
+
+Completed:
+
+- Added Spring chat history APIs:
+  - `GET /api/chat/sessions?limit=20`
+  - `GET /api/chat/sessions/{sessionId}/messages`
+- Added chat history DTOs and repository queries over `chat_sessions` and `chat_messages`.
+- Added service ownership guard so session messages are only returned for the current demo user.
+- Refactored frontend static UI into a staff dashboard:
+  - ChatGPT-like chat history sidebar
+  - selected patient header
+  - chat area
+  - compact patient search in the right detail panel
+  - patient detail/evidence panel
+- Patient search supports name, phone, birth date, identifier, and direct `demo-patient-*` lookup.
+- Selecting a patient loads:
+  - demographics
+  - encounters
+  - observations
+  - conditions
+  - medications
+- Chat requests now automatically include the selected `patient_id`.
+- Clicking a chat session loads stored user/assistant messages from the app database.
+- Fixed chat history item layout so long session titles/previews no longer overlap in the scroll list.
+- Moved chat history to the left sidebar, made the center chat panel fixed-height with its own message scroll, and changed patient search to show results only after a search.
+
+Verified:
+
+- `.\mvnw.cmd test -q` with Java 21.
+- `node --check frontend/app.js`.
+- Spring restarted on `http://localhost:8081`.
+- Frontend static server available on `http://localhost:5173`.
+- Live smoke test:
+  - `GET /api/chat/sessions?limit=3` returned sessions.
+  - `GET /api/chat/sessions/{sessionId}/messages` returned messages.
+  - `GET /api/patients?name=Nguyen&limit=5` returned matching patients.
+  - `POST /api/chat` with `patient_id=demo-patient-001` routed to `get_medication_requests`.
+  - New chat persisted session/messages and wrote usage/audit rows.
+
+### 8. Session Memory V1
+
+Status: Done for current demo scope
+
+Completed:
+
+- Added lightweight session memory in the app database through Flyway V4:
+  - `chat_sessions.active_patient_id`
+  - `chat_sessions.memory_summary`
+  - `chat_sessions.last_intent`
+  - `chat_sessions.last_tool_name`
+  - `chat_sessions.last_resource_type`
+  - `chat_sessions.last_resource_id`
+  - `chat_messages.metadata_json`
+- Spring now builds `conversation_context` for chatbot-service from:
+  - session memory
+  - active patient
+  - last FHIR resource reference
+  - six recent messages
+- Spring uses `active_patient_id` when the next message in the same session does not provide a patient id.
+- chatbot-service now accepts `conversation_context`.
+- chatbot-service returns `memory_update` with compact evidence refs instead of storing full raw FHIR evidence in memory.
+- Follow-up questions such as `benh nhan do dang dung thuoc gi?` can reuse the active patient from the session.
+- Follow-up questions such as `chi so do co cao khong?` can use `last_resource_type` and `last_resource_id`, then retrieve the FHIR resource again by REST API.
+- Frontend restores the active patient profile when opening a chat session that has `active_patient_id`.
+
+Verified:
+
+- `python -m unittest discover tests`
+- Latest result: 56 tests passed.
+- `node --check frontend/app.js`
+- `.\mvnw.cmd test -q` with Java 21 after setting `JAVA_HOME` to `C:\Program Files\Java\jdk-21.0.11`.
+
 ## Current Capabilities
 
 The system can currently answer questions about:
@@ -243,6 +315,11 @@ The system can currently answer questions about:
   - HbA1c
 - Conditions/diagnoses.
 - Medication requests.
+- Staff demo dashboard patient search.
+- Staff demo dashboard selected-patient chat context.
+- Chat session history loading.
+- Session-level active patient memory.
+- Compact evidence reference memory for follow-up questions.
 
 Example questions:
 
@@ -253,6 +330,8 @@ thuoc cua benh nhan Tran Thi B
 huyet ap cua benh nhan 001
 lich su kham cua benh nhan 005
 chan doan cua tat ca benh nhan
+benh nhan do dang dung thuoc gi
+chi so do co cao khong
 ```
 
 ## Important Decisions
@@ -264,6 +343,7 @@ chan doan cua tat ca benh nhan
 - FastAPI `chatbot-service` is the AI/FHIR orchestration service.
 - Patient names are stored in FHIR using `family` and `given`, but displayed in Vietnamese order by the normalizer.
 - LLM output must be grounded in normalized FHIR evidence.
+- Session memory stores compact references and summaries; detailed structured data is re-read from FHIR when needed.
 
 ## Next Recommended Milestones
 
@@ -292,13 +372,13 @@ Goal:
 
 ### 3. Frontend Improvements
 
-Status: Planned
+Status: Partially done
 
 Goal:
 
-- Add patient search UI.
-- Add chat history.
-- Improve evidence panel.
+- Patient search UI. Done for staff demo.
+- Chat history. Done for staff demo.
+- Improve evidence panel. Basic readable summaries done; production polish remains.
 
 ### 4. Authentication And Access Control
 

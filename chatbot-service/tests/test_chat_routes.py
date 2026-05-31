@@ -3,6 +3,8 @@ import unittest
 from api.chat_routes import (
     _detect_intent,
     _apply_selected_patient_context,
+    _apply_context_reference_context,
+    _answer_context_resource_if_applicable,
     _finalize_chat_response,
     _observation_matches_type,
     _resolve_patient_id_for_tool,
@@ -18,6 +20,7 @@ from agents.intent_extractor import (
     TOOL_GET_OBSERVATIONS,
     TOOL_GET_PATIENT,
     TOOL_SEARCH_PATIENTS,
+    TOOL_UNSUPPORTED,
     RuleBasedIntentExtractor,
     apply_all_patient_scope,
     add_observation_type_hint,
@@ -63,6 +66,27 @@ class FakePatientSearchClient:
                     }
                 },
             ]
+        }
+
+
+class FakeResourceClient:
+    async def get_resource(self, resource_type: str, resource_id: str):
+        return {
+            "resourceType": resource_type,
+            "id": resource_id,
+            "status": "final",
+            "code": {"text": "Blood pressure"},
+            "subject": {"reference": "Patient/demo-patient-001"},
+            "component": [
+                {
+                    "code": {"text": "Systolic blood pressure"},
+                    "valueQuantity": {"value": 150, "unit": "mmHg"},
+                },
+                {
+                    "code": {"text": "Diastolic blood pressure"},
+                    "valueQuantity": {"value": 92, "unit": "mmHg"},
+                },
+            ],
         }
 
 
@@ -127,6 +151,14 @@ class ChatRoutesTests(unittest.TestCase):
 
         self.assertEqual(_resolve_patient_id(request), "demo-patient-001")
 
+    def test_context_active_patient_is_used_as_patient_hint(self) -> None:
+        request = ChatRequest(
+            message="benh nhan do dang dung thuoc gi?",
+            conversation_context={"active_patient_id": "demo-patient-004"},
+        )
+
+        self.assertEqual(_resolve_patient_id(request), "demo-patient-004")
+
     def test_selected_patient_context_clears_search_criteria_for_resource_tool(self) -> None:
         request = ChatRequest(message="thuoc cua benh nhan Nguyen", patient_id="demo-patient-006")
         plan = IntentPlan(
@@ -140,6 +172,37 @@ class ChatRoutesTests(unittest.TestCase):
         self.assertEqual(result.tool_name, TOOL_GET_MEDICATIONS)
         self.assertEqual(result.patient_id, "demo-patient-006")
         self.assertIsNone(result.search_name)
+
+    def test_context_reference_does_not_override_explicit_resource_intent(self) -> None:
+        request = ChatRequest(
+            message="benh nhan do dang dung thuoc gi?",
+            conversation_context={
+                "active_patient_id": "demo-patient-001",
+                "last_resource_type": "Observation",
+                "last_resource_id": "obs-1",
+            },
+        )
+        plan = IntentPlan(tool_name=TOOL_GET_MEDICATIONS, patient_id="demo-patient-001")
+
+        result = _apply_context_reference_context(request, plan)
+
+        self.assertEqual(result.tool_name, TOOL_GET_MEDICATIONS)
+
+    def test_context_reference_routes_unsupported_to_last_resource_tool(self) -> None:
+        request = ChatRequest(
+            message="chi so do co cao khong?",
+            conversation_context={
+                "active_patient_id": "demo-patient-001",
+                "last_resource_type": "Observation",
+                "last_resource_id": "obs-1",
+            },
+        )
+        plan = IntentPlan(tool_name=TOOL_UNSUPPORTED, patient_id="demo-patient-001")
+
+        result = _apply_context_reference_context(request, plan)
+
+        self.assertEqual(result.tool_name, TOOL_GET_OBSERVATIONS)
+        self.assertEqual(result.source, "rules_context_reference")
 
     def test_selected_patient_context_turns_contact_search_into_patient_lookup(self) -> None:
         request = ChatRequest(message="so dien thoai cua Nguyen", patient_id="demo-patient-006")
@@ -206,6 +269,31 @@ class IntentExtractorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["answer_usage"]["input_tokens"], 20)
         self.assertEqual(result["usage"]["input_tokens"], 30)
         self.assertEqual(result["tool_name"], TOOL_GET_OBSERVATIONS)
+        self.assertEqual(result["memory_update"]["active_patient_id"], "demo-patient-003")
+        self.assertEqual(result["memory_update"]["last_resource_type"], "Observation")
+        self.assertEqual(result["memory_update"]["last_resource_id"], "obs-1")
+
+    async def test_context_resource_reference_fetches_last_observation(self) -> None:
+        request = ChatRequest(
+            message="chi so do co cao khong?",
+            conversation_context={
+                "active_patient_id": "demo-patient-001",
+                "last_resource_type": "Observation",
+                "last_resource_id": "obs-1",
+            },
+        )
+        plan = IntentPlan(
+            tool_name=TOOL_GET_OBSERVATIONS,
+            patient_id="demo-patient-001",
+            source="rules_context_reference",
+        )
+
+        payload = await _answer_context_resource_if_applicable(FakeResourceClient(), request, plan)
+
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["patient_id"], "demo-patient-001")
+        self.assertEqual(payload["evidence"][0]["resource_type"], "Observation")
+        self.assertEqual(payload["evidence"][0]["id"], "obs-1")
 
     async def test_rule_based_extractor_returns_fhir_tool_plan(self) -> None:
         plan = await RuleBasedIntentExtractor().extract(

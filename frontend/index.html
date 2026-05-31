@@ -3,35 +3,48 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Chatbot Y tế</title>
+    <title>Medical Chatbot Staff Demo</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="app-shell">
-      <section class="chat-panel" aria-label="Khung chat thử nghiệm">
-        <header class="top-bar">
+    <main class="dashboard-shell">
+      <aside class="history-sidebar" aria-label="Lịch sử hội thoại">
+        <header class="sidebar-header">
           <div>
-            <h1>Chatbot Y tế</h1>
-            <p>Giao diện thử nghiệm qua Spring backend</p>
+            <h1>Staff Demo</h1>
+            <p>Hỏi đáp dữ liệu FHIR qua Spring backend.</p>
           </div>
-          <div class="status" id="statusText">Sẵn sàng</div>
+          <span class="status ready" id="statusText">Sẵn sàng</span>
         </header>
 
-        <section class="settings-row" aria-label="Thiết lập yêu cầu">
-          <label>
-            Spring API
-            <input id="apiBaseUrl" value="http://localhost:8081" spellcheck="false" />
-          </label>
-          <label>
-            Mã bệnh nhân tùy chọn
-            <input id="patientId" placeholder="Ví dụ: demo-patient-003" spellcheck="false" />
-          </label>
+        <label class="api-setting">
+          Spring API
+          <input id="apiBaseUrl" value="http://localhost:8081" spellcheck="false" />
+        </label>
+
+        <div class="history-actions">
+          <button type="button" id="newChatButton">Cuộc chat mới</button>
+          <button type="button" id="refreshSessionsButton">Làm mới</button>
+        </div>
+
+        <section class="session-panel">
+          <h2>Lịch sử hội thoại</h2>
+          <div class="session-list" id="sessionList" aria-live="polite"></div>
         </section>
+      </aside>
+
+      <section class="chat-panel" aria-label="Khung chat">
+        <header class="chat-header">
+          <div>
+            <h2 id="selectedPatientName">Chưa chọn bệnh nhân</h2>
+            <p id="selectedPatientMeta">Có thể hỏi câu tổng quát hoặc tìm bệnh nhân ở panel bên phải để chat theo hồ sơ.</p>
+          </div>
+        </header>
 
         <section class="messages" id="messages" aria-live="polite">
           <article class="message assistant">
             <div class="message-label">Trợ lý</div>
-            <p>Hãy hỏi về một bệnh nhân cụ thể hoặc hỏi danh sách bệnh nhân để kiểm tra luồng Spring -> chatbot-service -> FHIR.</p>
+            <p>Hỏi câu tổng quát hoặc chọn bệnh nhân ở bên phải để bắt đầu.</p>
           </article>
         </section>
 
@@ -39,58 +52,92 @@
           <textarea
             id="messageInput"
             rows="3"
-            placeholder="Ví dụ: Danh sách bệnh nhân hiện có"
+            placeholder="Ví dụ: Bệnh nhân này đang dùng thuốc gì?"
             required
           ></textarea>
-          <div class="composer-actions">
-            <button type="button" id="samplePatients">Bệnh nhân</button>
-            <button type="button" id="sampleMedication">Thuốc</button>
-            <button type="button" id="sampleObservation">Chỉ số</button>
+          <div class="quick-actions">
+            <button type="button" data-prompt="Bệnh nhân này đang dùng thuốc gì?">Thuốc</button>
+            <button type="button" data-prompt="Cho tôi xem chỉ số gần đây của bệnh nhân này">Chỉ số</button>
+            <button type="button" data-prompt="Lịch sử khám gần đây của bệnh nhân này">Lịch khám</button>
             <button type="submit" id="sendButton">Gửi</button>
           </div>
         </form>
       </section>
 
-      <aside class="details-panel" aria-label="Chi tiết phản hồi">
-        <h2>Phản hồi gần nhất</h2>
-        <dl class="metadata">
-          <div>
-            <dt>Phiên</dt>
-            <dd id="sessionId">-</dd>
-          </div>
-          <div>
-            <dt>Intent</dt>
-            <dd id="intent">-</dd>
-          </div>
-          <div>
-            <dt>Nguá»“n tráº£ lá»i</dt>
-            <dd id="answerSource">-</dd>
-          </div>
-          <div>
-            <dt>Tool</dt>
-            <dd id="toolName">-</dd>
-          </div>
-          <div>
-            <dt>Bệnh nhân</dt>
-            <dd id="responsePatient">-</dd>
-          </div>
-          <div>
-            <dt>Phạm vi</dt>
-            <dd id="responseScope">-</dd>
-          </div>
-          <div>
-            <dt>Loại chỉ số</dt>
-            <dd id="observationType">-</dd>
-          </div>
-        </dl>
+      <aside class="detail-panel" aria-label="Hồ sơ và dữ liệu tham chiếu">
+        <section class="detail-section patient-search-section">
+          <h2>Tìm bệnh nhân</h2>
+          <form class="search-form compact-search" id="patientSearchForm">
+            <input id="patientSearchInput" placeholder="Tên, SĐT, ngày sinh, mã định danh" spellcheck="false" />
+            <button type="submit" id="patientSearchButton">Tìm</button>
+          </form>
+          <div class="patient-list" id="patientList" aria-live="polite"></div>
+        </section>
 
-        <h2>Dữ liệu tham chiếu</h2>
-        <div id="evidenceList" class="evidence-list">
-          <p class="muted">Chưa có dữ liệu tham chiếu.</p>
-        </div>
+        <section class="detail-section">
+          <h2>Hồ sơ bệnh nhân</h2>
+          <div id="patientSummary" class="summary-grid">
+            <p class="muted">Chưa chọn bệnh nhân.</p>
+          </div>
+        </section>
 
-        <h2>Mức sử dụng</h2>
-        <pre id="usageBlock">-</pre>
+        <section class="detail-section">
+          <h2>Lần khám gần đây</h2>
+          <div id="encountersList" class="compact-list"></div>
+        </section>
+
+        <section class="detail-section">
+          <h2>Chỉ số gần đây</h2>
+          <div id="observationsList" class="compact-list"></div>
+        </section>
+
+        <section class="detail-section">
+          <h2>Chẩn đoán</h2>
+          <div id="conditionsList" class="compact-list"></div>
+        </section>
+
+        <section class="detail-section">
+          <h2>Thuốc</h2>
+          <div id="medicationsList" class="compact-list"></div>
+        </section>
+
+        <section class="detail-section">
+          <h2>Phản hồi gần nhất</h2>
+          <dl class="metadata">
+            <div>
+              <dt>Phiên</dt>
+              <dd id="sessionId">-</dd>
+            </div>
+            <div>
+              <dt>Intent</dt>
+              <dd id="intent">-</dd>
+            </div>
+            <div>
+              <dt>Nguồn trả lời</dt>
+              <dd id="answerSource">-</dd>
+            </div>
+            <div>
+              <dt>Tool</dt>
+              <dd id="toolName">-</dd>
+            </div>
+            <div>
+              <dt>Phạm vi</dt>
+              <dd id="responseScope">-</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="detail-section">
+          <h2>Dữ liệu tham chiếu</h2>
+          <div id="evidenceList" class="evidence-list">
+            <p class="muted">Chưa có dữ liệu tham chiếu.</p>
+          </div>
+        </section>
+
+        <section class="detail-section">
+          <h2>Mức sử dụng</h2>
+          <pre id="usageBlock">-</pre>
+        </section>
       </aside>
     </main>
 

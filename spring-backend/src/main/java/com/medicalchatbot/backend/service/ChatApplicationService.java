@@ -1,15 +1,24 @@
 package com.medicalchatbot.backend.service;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.medicalchatbot.backend.dto.ChatContextMessage;
+import com.medicalchatbot.backend.dto.ChatMessageItem;
+import com.medicalchatbot.backend.dto.ChatMessagesResponse;
 import com.medicalchatbot.backend.dto.ChatRequest;
 import com.medicalchatbot.backend.dto.ChatResponse;
+import com.medicalchatbot.backend.dto.ChatSessionListResponse;
+import com.medicalchatbot.backend.dto.ChatSessionMemory;
+import com.medicalchatbot.backend.dto.ChatSessionSummary;
 import com.medicalchatbot.backend.dto.ChatbotChatRequest;
+import com.medicalchatbot.backend.dto.ConversationContext;
 import com.medicalchatbot.backend.enums.ChatMessageRole;
 import com.medicalchatbot.backend.repository.AppUserRepository;
 import com.medicalchatbot.backend.repository.AuditLogRepository;
@@ -25,6 +34,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class ChatApplicationService {
 
     private static final String DEMO_USERNAME = "demo_user";
+    private static final int RECENT_CONTEXT_MESSAGE_LIMIT = 6;
 
     private final AppUserRepository appUserRepository;
     private final ChatSessionRepository chatSessionRepository;
@@ -58,22 +68,36 @@ public class ChatApplicationService {
         UUID sessionId = request.sessionId() == null
                 ? chatSessionRepository.create(userId, titleFromMessage(request.message()))
                 : requireSessionForUser(request.sessionId(), userId);
+        ChatSessionMemory sessionMemory = chatSessionRepository.findMemoryForSession(sessionId, userId);
+        String effectivePatientId = firstNonBlank(request.patientId(), sessionMemory.activePatientId());
+        List<ChatContextMessage> recentMessages = chatSessionRepository.findRecentMessagesForContext(
+                sessionId,
+                userId,
+                RECENT_CONTEXT_MESSAGE_LIMIT
+        );
+        ConversationContext conversationContext = conversationContext(sessionMemory, recentMessages);
 
-        chatMessageRepository.save(sessionId, ChatMessageRole.USER, request.message());
+        chatMessageRepository.save(sessionId, ChatMessageRole.USER, request.message(), userMessageMetadata(
+                request,
+                effectivePatientId
+        ));
 
         long startedAtNanos = System.nanoTime();
         JsonNode chatbotResponse = chatbotServiceClient.chat(new ChatbotChatRequest(
                 userId.toString(),
                 sessionId.toString(),
                 request.message(),
-                request.patientId()
+                effectivePatientId,
+                conversationContext
         ));
         long latencyMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos);
 
         String answer = chatbotResponse.path("answer").asText("");
-        chatMessageRepository.save(sessionId, ChatMessageRole.ASSISTANT, answer);
+        chatMessageRepository.save(sessionId, ChatMessageRole.ASSISTANT, answer, assistantMessageMetadata(chatbotResponse));
+        ChatSessionMemory nextMemory = nextSessionMemory(sessionMemory, effectivePatientId, chatbotResponse);
+        chatSessionRepository.updateMemory(sessionId, nextMemory);
         saveUsage(userId, sessionId, chatbotResponse, latencyMs);
-        saveAuditLog(userId, sessionId, request, chatbotResponse, latencyMs);
+        saveAuditLog(userId, sessionId, request, effectivePatientId, chatbotResponse, latencyMs);
 
         return new ChatResponse(
                 sessionId,
@@ -96,6 +120,19 @@ public class ChatApplicationService {
                 chatbotResponse.path("answer_usage"),
                 chatbotResponse.path("usage")
         );
+    }
+
+    public ChatSessionListResponse recentSessions(int limit) {
+        UUID userId = getDemoUserId();
+        List<ChatSessionSummary> sessions = chatSessionRepository.findRecentSessionsForUser(userId, limit);
+        return new ChatSessionListResponse(sessions);
+    }
+
+    public ChatMessagesResponse sessionMessages(UUID sessionId) {
+        UUID userId = getDemoUserId();
+        requireSessionForUser(sessionId, userId);
+        List<ChatMessageItem> messages = chatSessionRepository.findMessagesForSession(sessionId, userId);
+        return new ChatMessagesResponse(sessionId, messages);
     }
 
     private UUID getDemoUserId() {
@@ -134,6 +171,7 @@ public class ChatApplicationService {
             UUID userId,
             UUID sessionId,
             ChatRequest request,
+            String effectivePatientId,
             JsonNode chatbotResponse,
             long latencyMs
     ) {
@@ -146,9 +184,11 @@ public class ChatApplicationService {
         metadata.put("answer_source", textOrNull(chatbotResponse, "answer_source"));
         metadata.put("patient_id", textOrNull(chatbotResponse, "patient_id"));
         metadata.put("request_patient_id", request.patientId());
+        metadata.put("effective_patient_id", effectivePatientId);
         metadata.put("llm_provider", textOrNull(chatbotResponse, "llm_provider"));
         metadata.put("llm_model", textOrNull(chatbotResponse, "llm_model"));
         metadata.set("usage", chatbotResponse.path("usage"));
+        metadata.set("memory_update", chatbotResponse.path("memory_update"));
         if (chatbotResponse.has("needs_patient_selection")) {
             metadata.put("needs_patient_selection", chatbotResponse.path("needs_patient_selection").asBoolean(false));
         }
@@ -163,6 +203,123 @@ public class ChatApplicationService {
         );
     }
 
+    private ConversationContext conversationContext(
+            ChatSessionMemory sessionMemory,
+            List<ChatContextMessage> recentMessages
+    ) {
+        return new ConversationContext(
+                sessionMemory.memorySummary(),
+                sessionMemory.activePatientId(),
+                sessionMemory.lastIntent(),
+                sessionMemory.lastToolName(),
+                sessionMemory.lastResourceType(),
+                sessionMemory.lastResourceId(),
+                recentMessages
+        );
+    }
+
+    private ObjectNode userMessageMetadata(ChatRequest request, String effectivePatientId) {
+        ObjectNode metadata = objectMapper.createObjectNode();
+        metadata.put("request_patient_id", request.patientId());
+        metadata.put("effective_patient_id", effectivePatientId);
+        return metadata;
+    }
+
+    private ObjectNode assistantMessageMetadata(JsonNode chatbotResponse) {
+        ObjectNode metadata = objectMapper.createObjectNode();
+        metadata.put("intent", textOrNull(chatbotResponse, "intent"));
+        metadata.put("tool_name", textOrNull(chatbotResponse, "tool_name"));
+        metadata.put("patient_id", textOrNull(chatbotResponse, "patient_id"));
+        metadata.put("answer_source", textOrNull(chatbotResponse, "answer_source"));
+        metadata.set("evidence_refs", evidenceRefs(chatbotResponse));
+        metadata.set("memory_update", chatbotResponse.path("memory_update"));
+        return metadata;
+    }
+
+    private ArrayNode evidenceRefs(JsonNode chatbotResponse) {
+        ArrayNode refs = objectMapper.createArrayNode();
+        JsonNode memoryRefs = chatbotResponse.path("memory_update").path("evidence_refs");
+        if (memoryRefs.isArray()) {
+            memoryRefs.forEach(refs::add);
+            return refs;
+        }
+
+        JsonNode evidence = chatbotResponse.path("evidence");
+        if (!evidence.isArray()) {
+            return refs;
+        }
+        for (JsonNode item : evidence) {
+            ObjectNode ref = objectMapper.createObjectNode();
+            ref.put("resource_type", textOrNull(item, "resource_type"));
+            ref.put("resource_id", textOrNull(item, "id"));
+            ref.put("summary", textOrNull(item, "summary"));
+            refs.add(ref);
+        }
+        return refs;
+    }
+
+    private ChatSessionMemory nextSessionMemory(
+            ChatSessionMemory current,
+            String effectivePatientId,
+            JsonNode chatbotResponse
+    ) {
+        JsonNode memoryUpdate = chatbotResponse.path("memory_update");
+        boolean allPatients = chatbotResponse.path("all_patients").asBoolean(false);
+        boolean needsPatientSelection = chatbotResponse.path("needs_patient_selection").asBoolean(false);
+        boolean concretePatientResponse = !allPatients && !needsPatientSelection;
+
+        String activePatientId = current.activePatientId();
+        if (concretePatientResponse) {
+            activePatientId = firstNonBlank(
+                    textOrNull(memoryUpdate, "active_patient_id"),
+                    textOrNull(chatbotResponse, "patient_id"),
+                    effectivePatientId,
+                    activePatientId
+            );
+        }
+
+        String lastResourceType = current.lastResourceType();
+        String lastResourceId = current.lastResourceId();
+        if (concretePatientResponse) {
+            lastResourceType = firstNonBlank(
+                    textOrNull(memoryUpdate, "last_resource_type"),
+                    firstEvidenceRefField(chatbotResponse, "resource_type"),
+                    lastResourceType
+            );
+            lastResourceId = firstNonBlank(
+                    textOrNull(memoryUpdate, "last_resource_id"),
+                    firstEvidenceRefField(chatbotResponse, "resource_id"),
+                    lastResourceId
+            );
+        }
+
+        return new ChatSessionMemory(
+                activePatientId,
+                firstNonBlank(textOrNull(memoryUpdate, "summary"), current.memorySummary()),
+                firstNonBlank(textOrNull(memoryUpdate, "last_intent"), textOrNull(chatbotResponse, "intent"), current.lastIntent()),
+                firstNonBlank(textOrNull(memoryUpdate, "last_tool_name"), textOrNull(chatbotResponse, "tool_name"), current.lastToolName()),
+                lastResourceType,
+                lastResourceId
+        );
+    }
+
+    private String firstEvidenceRefField(JsonNode chatbotResponse, String fieldName) {
+        JsonNode memoryRefs = chatbotResponse.path("memory_update").path("evidence_refs");
+        if (memoryRefs.isArray() && memoryRefs.size() > 0) {
+            String value = textOrNull(memoryRefs.get(0), fieldName);
+            if (value != null) {
+                return value;
+            }
+        }
+
+        JsonNode evidence = chatbotResponse.path("evidence");
+        if (!evidence.isArray() || evidence.size() == 0) {
+            return null;
+        }
+        String evidenceField = "resource_id".equals(fieldName) ? "id" : fieldName;
+        return textOrNull(evidence.get(0), evidenceField);
+    }
+
     private String textOrNull(JsonNode node, String fieldName) {
         JsonNode value = node.path(fieldName);
         if (value.isMissingNode() || value.isNull()) {
@@ -173,6 +330,15 @@ public class ChatApplicationService {
             return null;
         }
         return text;
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private String titleFromMessage(String message) {

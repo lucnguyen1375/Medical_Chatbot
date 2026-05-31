@@ -1,93 +1,398 @@
-const form = document.querySelector("#chatForm");
-const messageInput = document.querySelector("#messageInput");
-const patientIdInput = document.querySelector("#patientId");
+const patientSearchForm = document.querySelector("#patientSearchForm");
+const patientSearchInput = document.querySelector("#patientSearchInput");
+const patientList = document.querySelector("#patientList");
 const apiBaseUrlInput = document.querySelector("#apiBaseUrl");
-const messages = document.querySelector("#messages");
-const sendButton = document.querySelector("#sendButton");
 const statusText = document.querySelector("#statusText");
-const samplePatients = document.querySelector("#samplePatients");
-const sampleMedication = document.querySelector("#sampleMedication");
-const sampleObservation = document.querySelector("#sampleObservation");
+
+const selectedPatientName = document.querySelector("#selectedPatientName");
+const selectedPatientMeta = document.querySelector("#selectedPatientMeta");
+const patientSummary = document.querySelector("#patientSummary");
+const encountersList = document.querySelector("#encountersList");
+const observationsList = document.querySelector("#observationsList");
+const conditionsList = document.querySelector("#conditionsList");
+const medicationsList = document.querySelector("#medicationsList");
+
+const chatForm = document.querySelector("#chatForm");
+const messageInput = document.querySelector("#messageInput");
+const sendButton = document.querySelector("#sendButton");
+const messages = document.querySelector("#messages");
+const newChatButton = document.querySelector("#newChatButton");
+const refreshSessionsButton = document.querySelector("#refreshSessionsButton");
+const sessionList = document.querySelector("#sessionList");
 
 const sessionId = document.querySelector("#sessionId");
 const intent = document.querySelector("#intent");
 const answerSource = document.querySelector("#answerSource");
 const toolName = document.querySelector("#toolName");
-const responsePatient = document.querySelector("#responsePatient");
 const responseScope = document.querySelector("#responseScope");
-const observationType = document.querySelector("#observationType");
 const evidenceList = document.querySelector("#evidenceList");
 const usageBlock = document.querySelector("#usageBlock");
 
+let selectedPatient = null;
 let currentSessionId = null;
+let lastPatients = [];
 
-samplePatients.addEventListener("click", () => {
-  messageInput.value = "Danh sách bệnh nhân hiện có";
-  messageInput.focus();
-});
-
-sampleMedication.addEventListener("click", () => {
-  messageInput.value = `Bệnh nhân ${patientIdInput.value.trim() || "001"} đang dùng thuốc gì?`;
-  messageInput.focus();
-});
-
-sampleObservation.addEventListener("click", () => {
-  messageInput.value = `Cho tôi xem huyết áp gần nhất của bệnh nhân ${patientIdInput.value.trim() || "001"}`;
-  messageInput.focus();
-});
-
-form.addEventListener("submit", async (event) => {
+patientSearchForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  await loadPatients(patientSearchInput.value.trim());
+});
 
+chatForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
   const message = messageInput.value.trim();
-  const patientId = patientIdInput.value.trim();
-
   if (!message) {
     return;
   }
-
-  await submitChat(message, patientId, message);
+  await submitChat(message, selectedPatient?.id || null, message);
 });
 
-async function submitChat(message, patientId, displayText) {
-  const apiBaseUrl = apiBaseUrlInput.value.trim().replace(/\/$/, "");
+newChatButton.addEventListener("click", () => {
+  currentSessionId = null;
+  resetMessages("Cuộc chat mới đã sẵn sàng.");
+  renderDetails(null);
+  renderSessionsActiveState();
+  messageInput.focus();
+});
 
-  if (!message || !apiBaseUrl) {
+refreshSessionsButton.addEventListener("click", () => {
+  loadSessions();
+});
+
+document.querySelectorAll("[data-prompt]").forEach((button) => {
+  button.addEventListener("click", () => {
+    messageInput.value = button.dataset.prompt || "";
+    messageInput.focus();
+  });
+});
+
+apiBaseUrlInput.addEventListener("change", () => {
+  clearPatientSearchResults("Nhập thông tin rồi bấm Tìm khi cần chọn bệnh nhân.");
+  loadSessions();
+});
+
+init();
+
+async function init() {
+  resetMessages("Hỏi câu tổng quát hoặc chọn bệnh nhân ở bên phải để bắt đầu.");
+  renderEmptyPatientSections();
+  clearPatientSearchResults("Nhập thông tin rồi bấm Tìm khi cần chọn bệnh nhân.");
+  await loadSessions();
+}
+
+function apiBaseUrl() {
+  return apiBaseUrlInput.value.trim().replace(/\/$/, "");
+}
+
+async function apiGet(path) {
+  const response = await fetch(`${apiBaseUrl()}${path}`, {
+    headers: { Accept: "application/json" },
+  });
+  return readJsonResponse(response);
+}
+
+async function apiPost(path, payload) {
+  const response = await fetch(`${apiBaseUrl()}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  return readJsonResponse(response);
+}
+
+async function readJsonResponse(response) {
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.detail || `Yêu cầu thất bại với HTTP ${response.status}`);
+  }
+  return data;
+}
+
+async function loadPatients(term) {
+  if (!term) {
+    clearPatientSearchResults("Nhập tên, SĐT, ngày sinh hoặc mã định danh để tìm.");
     return;
   }
 
+  setStatus("Đang tìm bệnh nhân", "loading");
+  showPatientSearchResults(createPlaceholder("Đang tìm bệnh nhân..."));
+
+  try {
+    let patients;
+    if (/^demo-patient-[a-z0-9.-]+$/i.test(term)) {
+      patients = [await apiGet(`/api/patients/${encodeURIComponent(term)}`)];
+    } else {
+      const params = buildPatientSearchParams(term);
+      const data = await apiGet(`/api/patients?${params.toString()}`);
+      patients = Array.isArray(data.patients) ? data.patients : [];
+    }
+
+    lastPatients = patients;
+    renderPatientList(patients);
+    setStatus("Sẵn sàng", "ready");
+  } catch (error) {
+    showPatientSearchResults(createPlaceholder(error.message, "error-text"));
+    setStatus("Lỗi", "error");
+  }
+}
+
+function buildPatientSearchParams(term) {
+  const params = new URLSearchParams({ limit: "20" });
+  if (/^\d{4}-\d{2}-\d{2}$/.test(term)) {
+    params.set("birth_date", term);
+  } else if (/^\d{8,}$/.test(term.replace(/\s+/g, ""))) {
+    params.set("phone", term.replace(/\s+/g, ""));
+  } else if (/^[A-Z]+-\d+$/i.test(term)) {
+    params.set("identifier", term);
+  } else {
+    params.set("name", term);
+  }
+  return params;
+}
+
+function renderPatientList(patients) {
+  if (patients.length === 0) {
+    showPatientSearchResults(createPlaceholder("Không tìm thấy bệnh nhân phù hợp."));
+    return;
+  }
+
+  patientList.replaceChildren();
+  patientList.classList.add("visible");
+  for (const patient of patients) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "patient-row";
+    button.dataset.patientId = patient.id;
+    if (selectedPatient?.id === patient.id) {
+      button.classList.add("active");
+    }
+
+    button.append(
+      createEl("strong", "", patient.name || "Không rõ tên"),
+      createEl(
+        "span",
+        "",
+        [
+          patient.id,
+          patient.birth_date ? `Sinh: ${patient.birth_date}` : null,
+          patient.gender ? `Giới tính: ${formatGender(patient.gender)}` : null,
+          patient.phone ? `SĐT: ${patient.phone}` : null,
+        ].filter(Boolean).join(" | ")
+      )
+    );
+    button.addEventListener("click", () => {
+      selectPatient(patient, { resetSession: true, clearMessages: true });
+    });
+    patientList.append(button);
+  }
+}
+
+function showPatientSearchResults(node) {
+  patientList.replaceChildren(node);
+  patientList.classList.add("visible");
+}
+
+function clearPatientSearchResults(text) {
+  patientList.replaceChildren(createPlaceholder(text));
+  patientList.classList.remove("visible");
+}
+
+function markSelectedPatientInResults() {
+  document.querySelectorAll(".patient-row").forEach((node) => {
+    node.classList.toggle("active", node.dataset.patientId === selectedPatient?.id);
+  });
+}
+
+async function selectPatient(patient, options = {}) {
+  const { resetSession = true, clearMessages = true } = options;
+  selectedPatient = patient;
+  if (resetSession) {
+    currentSessionId = null;
+  }
+
+  renderSelectedPatient(patient);
+  markSelectedPatientInResults();
+  if (clearMessages) {
+    resetMessages(`Đã chọn ${patient.name || patient.id}.`);
+    renderDetails(null);
+  }
+  await loadPatientProfile(patient.id);
+  clearPatientSearchResults("Đã chọn bệnh nhân. Tìm lại khi cần đổi bệnh nhân.");
+  renderSessionsActiveState();
+}
+
+async function selectPatientById(patientId, options = {}) {
+  const patient = await apiGet(`/api/patients/${encodeURIComponent(normalizePatientId(patientId))}`);
+  await selectPatient(patient, options);
+}
+
+function renderSelectedPatient(patient) {
+  selectedPatientName.textContent = patient.name || patient.id;
+  selectedPatientMeta.textContent = [
+    patient.id,
+    patient.birth_date ? `Sinh: ${patient.birth_date}` : null,
+    patient.gender ? `Giới tính: ${formatGender(patient.gender)}` : null,
+    patient.phone ? `SĐT: ${patient.phone}` : null,
+  ].filter(Boolean).join(" | ");
+}
+
+async function loadPatientProfile(patientId) {
+  renderPatientLoading();
+  try {
+    const [patient, encounters, observations, conditions, medications] = await Promise.all([
+      apiGet(`/api/patients/${encodeURIComponent(patientId)}`),
+      apiGet(`/api/patients/${encodeURIComponent(patientId)}/encounters?limit=5`),
+      apiGet(`/api/patients/${encodeURIComponent(patientId)}/observations?limit=5`),
+      apiGet(`/api/patients/${encodeURIComponent(patientId)}/conditions?limit=20`),
+      apiGet(`/api/patients/${encodeURIComponent(patientId)}/medications?limit=20`),
+    ]);
+
+    selectedPatient = patient;
+    renderSelectedPatient(patient);
+    renderPatientSummary(patient);
+    renderEncounters(encounters.encounters || []);
+    renderObservations(observations.observations || []);
+    renderConditions(conditions.conditions || []);
+    renderMedications(medications.medications || []);
+    setStatus("Sẵn sàng", "ready");
+  } catch (error) {
+    patientSummary.replaceChildren(createPlaceholder(error.message, "error-text"));
+    setStatus("Lỗi", "error");
+  }
+}
+
+function renderPatientLoading() {
+  patientSummary.replaceChildren(createPlaceholder("Đang tải hồ sơ bệnh nhân..."));
+  encountersList.replaceChildren();
+  observationsList.replaceChildren();
+  conditionsList.replaceChildren();
+  medicationsList.replaceChildren();
+}
+
+function renderEmptyPatientSections() {
+  patientSummary.replaceChildren(createPlaceholder("Chưa chọn bệnh nhân."));
+  encountersList.replaceChildren(createPlaceholder("Chưa có dữ liệu."));
+  observationsList.replaceChildren(createPlaceholder("Chưa có dữ liệu."));
+  conditionsList.replaceChildren(createPlaceholder("Chưa có dữ liệu."));
+  medicationsList.replaceChildren(createPlaceholder("Chưa có dữ liệu."));
+}
+
+function renderPatientSummary(patient) {
+  patientSummary.replaceChildren();
+  const rows = [
+    ["Mã FHIR", patient.id],
+    ["Họ tên", patient.name],
+    ["Giới tính", formatGender(patient.gender)],
+    ["Ngày sinh", patient.birth_date],
+    ["SĐT", patient.phone],
+    ["Email", patient.email],
+    ["Định danh", formatIdentifiers(patient.identifier)],
+  ];
+
+  for (const [label, value] of rows) {
+    const item = document.createElement("div");
+    item.className = "summary-item";
+    item.append(createEl("span", "", label), createEl("strong", "", value || "-"));
+    patientSummary.append(item);
+  }
+}
+
+function renderEncounters(encounters) {
+  renderList(encountersList, encounters, (encounter) => {
+    const type = firstText(encounter.type) || "Lần khám";
+    const period = encounter.period || {};
+    return {
+      title: type,
+      lines: [
+        `Trạng thái: ${encounter.status || "-"}`,
+        period.start ? `Bắt đầu: ${formatDateTime(period.start)}` : null,
+        period.end ? `Kết thúc: ${formatDateTime(period.end)}` : null,
+      ],
+    };
+  });
+}
+
+function renderObservations(observations) {
+  renderList(observationsList, observations, (observation) => ({
+    title: observation.code || "Chỉ số",
+    lines: [
+      observationValueText(observation),
+      observation.effective_time ? `Thời điểm: ${formatDateTime(observation.effective_time)}` : null,
+      observation.status ? `Trạng thái: ${observation.status}` : null,
+    ],
+  }));
+}
+
+function renderConditions(conditions) {
+  renderList(conditionsList, conditions, (condition) => ({
+    title: condition.code || "Chẩn đoán",
+    lines: [
+      condition.clinical_status ? `Lâm sàng: ${condition.clinical_status}` : null,
+      condition.verification_status ? `Xác nhận: ${condition.verification_status}` : null,
+      condition.recorded_date ? `Ghi nhận: ${formatDateTime(condition.recorded_date)}` : null,
+    ],
+  }));
+}
+
+function renderMedications(medications) {
+  renderList(medicationsList, medications, (medication) => ({
+    title: medication.medication || "Thuốc",
+    lines: [
+      medication.status ? `Trạng thái: ${medication.status}` : null,
+      medication.authored_on ? `Ngày kê: ${formatDateTime(medication.authored_on)}` : null,
+      medication.dosage?.length ? `Liều dùng: ${medication.dosage.join("; ")}` : null,
+    ],
+  }));
+}
+
+function renderList(container, items, mapItem) {
+  container.replaceChildren();
+  if (!items.length) {
+    container.append(createPlaceholder("Chưa có dữ liệu."));
+    return;
+  }
+
+  for (const item of items) {
+    const view = mapItem(item);
+    const node = document.createElement("article");
+    node.className = "compact-item";
+    node.append(createEl("strong", "", view.title));
+
+    const lines = (view.lines || []).filter(Boolean);
+    if (lines.length) {
+      const detail = document.createElement("div");
+      detail.className = "compact-lines";
+      for (const line of lines) {
+        detail.append(createEl("span", "", line));
+      }
+      node.append(detail);
+    }
+    container.append(node);
+  }
+}
+
+async function submitChat(message, patientId, displayText) {
   appendMessage("user", displayText || message);
   messageInput.value = "";
-  setStatus("Đang gửi", "loading");
   setFormDisabled(true);
+  setStatus("Đang gửi", "loading");
 
   try {
     const payload = {
       message,
       patient_id: patientId || null,
     };
-
     if (currentSessionId) {
       payload.session_id = currentSessionId;
     }
 
-    const response = await fetch(`${apiBaseUrl}/api/chat`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(data.detail || `Yêu cầu thất bại với HTTP ${response.status}`);
-    }
-
+    const data = await apiPost("/api/chat", payload);
     currentSessionId = data.session_id || currentSessionId;
     appendMessage("assistant", data.answer || "Không có câu trả lời.", data);
     renderDetails(data);
+    await loadSessions();
     setStatus("Sẵn sàng", "ready");
   } catch (error) {
     appendMessage("error", error.message || "Yêu cầu thất bại.");
@@ -98,17 +403,113 @@ async function submitChat(message, patientId, displayText) {
   }
 }
 
+async function loadSessions() {
+  sessionList.replaceChildren(createPlaceholder("Đang tải lịch sử..."));
+  try {
+    const data = await apiGet("/api/chat/sessions?limit=30");
+    renderSessionList(data.sessions || []);
+  } catch (error) {
+    sessionList.replaceChildren(createPlaceholder(error.message, "error-text"));
+  }
+}
+
+function renderSessionList(sessions) {
+  sessionList.replaceChildren();
+  if (!sessions.length) {
+    sessionList.append(createPlaceholder("Chưa có phiên chat."));
+    return;
+  }
+
+  for (const session of sessions) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "session-row";
+    button.dataset.sessionId = session.id;
+    button.dataset.activePatientId = session.active_patient_id || "";
+    if (session.id === currentSessionId) {
+      button.classList.add("active");
+    }
+
+    button.append(
+      createEl("strong", "", session.title || "Cuộc trò chuyện"),
+      createEl("span", "", session.last_message_preview || "Chưa có tin nhắn"),
+      createEl("small", "", `${session.message_count || 0} tin nhắn | ${formatDateTime(session.updated_at)}`)
+    );
+    button.addEventListener("click", () => loadSessionMessages(session.id, session.active_patient_id));
+    sessionList.append(button);
+  }
+}
+
+async function loadSessionMessages(id, activePatientId) {
+  setStatus("Đang tải lịch sử", "loading");
+  try {
+    const data = await apiGet(`/api/chat/sessions/${encodeURIComponent(id)}/messages`);
+    currentSessionId = data.session_id;
+    renderMessagesFromHistory(data.messages || []);
+    renderSessionsActiveState();
+    renderDetails(null);
+    sessionId.textContent = currentSessionId || "-";
+    if (activePatientId) {
+      await selectPatientById(activePatientId, { resetSession: false, clearMessages: false });
+    } else {
+      clearSelectedPatient();
+    }
+    setStatus("Sẵn sàng", "ready");
+  } catch (error) {
+    appendMessage("error", error.message || "Không tải được lịch sử.");
+    setStatus("Lỗi", "error");
+  }
+}
+
+function clearSelectedPatient() {
+  selectedPatient = null;
+  selectedPatientName.textContent = "Chưa chọn bệnh nhân";
+  selectedPatientMeta.textContent = "Phiên này chưa gắn bệnh nhân cụ thể.";
+  renderEmptyPatientSections();
+}
+
+function renderMessagesFromHistory(items) {
+  messages.replaceChildren();
+  if (!items.length) {
+    messages.append(createHistoryNotice("Phiên này chưa có tin nhắn."));
+    return;
+  }
+
+  for (const item of items) {
+    appendMessage(item.role === "assistant" ? "assistant" : "user", item.content);
+  }
+}
+
+function renderSessionsActiveState() {
+  document.querySelectorAll(".session-row").forEach((node) => {
+    node.classList.toggle("active", node.dataset.sessionId === currentSessionId);
+  });
+}
+
+function resetMessages(text) {
+  messages.replaceChildren(createHistoryNotice(text));
+}
+
+function createHistoryNotice(text) {
+  const article = document.createElement("article");
+  article.className = "message assistant";
+  article.append(createEl("div", "message-label", "Trợ lý"), createEl("p", "", text));
+  return article;
+}
+
 function appendMessage(role, text, data) {
   const article = document.createElement("article");
   article.className = `message ${role}`;
 
-  const label = document.createElement("div");
-  label.className = "message-label";
-  label.textContent = role === "user" ? "Bạn" : role === "error" ? "Lỗi" : "Trợ lý";
+  const label = createEl(
+    "div",
+    "message-label",
+    role === "user" ? "Bạn" : role === "error" ? "Lỗi" : "Trợ lý"
+  );
 
   const body = role === "assistant"
     ? renderAssistantAnswer(text)
-    : renderPlainMessage(text);
+    : createEl("p", "", text || "");
 
   article.append(label, body);
   if (role === "assistant") {
@@ -117,27 +518,24 @@ function appendMessage(role, text, data) {
       article.append(candidates);
     }
   }
+
   messages.append(article);
   messages.scrollTop = messages.scrollHeight;
 }
 
 function renderPatientCandidates(data) {
-  if (!data || !data.needs_patient_selection || !Array.isArray(data.patient_candidates)) {
+  if (!data?.needs_patient_selection || !Array.isArray(data.patient_candidates)) {
     return null;
   }
 
-  const candidates = data.patient_candidates.filter((item) => item && item.id);
-  if (candidates.length === 0) {
+  const candidates = data.patient_candidates.filter((item) => item?.id);
+  if (!candidates.length) {
     return null;
   }
 
   const panel = document.createElement("div");
   panel.className = "candidate-panel";
-
-  const title = document.createElement("div");
-  title.className = "candidate-title";
-  title.textContent = "Chọn đúng bệnh nhân để tiếp tục";
-  panel.append(title);
+  panel.append(createEl("div", "candidate-title", "Chọn đúng bệnh nhân để tiếp tục"));
 
   for (const candidate of candidates) {
     const row = document.createElement("div");
@@ -145,35 +543,137 @@ function renderPatientCandidates(data) {
 
     const info = document.createElement("div");
     info.className = "candidate-info";
+    info.append(
+      createEl("strong", "", `${candidate.name || "Không rõ tên"} (${candidate.id})`),
+      createEl(
+        "span",
+        "",
+        [
+          candidate.birth_date ? `Sinh: ${candidate.birth_date}` : null,
+          candidate.phone ? `SĐT: ${candidate.phone}` : null,
+          candidate.gender ? `Giới tính: ${formatGender(candidate.gender)}` : null,
+        ].filter(Boolean).join(" | ")
+      )
+    );
 
-    const name = document.createElement("strong");
-    name.textContent = `${candidate.name || "Không rõ tên"} (${candidate.id})`;
-
-    const detail = document.createElement("span");
-    detail.textContent = [
-      candidate.birth_date ? `Sinh: ${candidate.birth_date}` : null,
-      candidate.phone ? `SĐT: ${candidate.phone}` : null,
-      candidate.gender ? `Giới tính: ${formatGender(candidate.gender)}` : null,
-    ].filter(Boolean).join(" | ");
-
-    info.append(name, detail);
-
-    const button = document.createElement("button");
+    const button = createEl("button", "candidate-button", "Chọn");
     button.type = "button";
-    button.className = "candidate-button";
-    button.textContent = "Chọn";
-    button.addEventListener("click", () => {
-      patientIdInput.value = candidate.id;
+    button.addEventListener("click", async () => {
+      const patientId = normalizePatientId(candidate.id);
+      await selectPatientById(patientId, { resetSession: false, clearMessages: false });
       const question = data.pending_question || messageInput.value.trim();
-      const label = `Chọn Patient/${candidate.id} - ${candidate.name || "không rõ tên"}`;
-      submitChat(question, candidate.id, label);
+      const label = `Chọn Patient/${patientId} - ${candidate.name || "không rõ tên"}`;
+      await submitChat(question, patientId, label);
     });
 
     row.append(info, button);
     panel.append(row);
   }
-
   return panel;
+}
+
+function renderAssistantAnswer(text) {
+  const answer = String(text || "").trim();
+  const body = document.createElement("div");
+  body.className = "message-body";
+
+  for (const line of answer.split(/\n+/).map((item) => item.trim()).filter(Boolean)) {
+    body.append(createEl("p", "", line));
+  }
+
+  if (!body.childElementCount) {
+    body.append(createEl("p", "", "Không có câu trả lời."));
+  }
+  return body;
+}
+
+function renderDetails(data) {
+  sessionId.textContent = data?.session_id || currentSessionId || "-";
+  intent.textContent = data?.intent || "-";
+  answerSource.textContent = data?.answer_source || "-";
+  toolName.textContent = data?.tool_name || "-";
+  responseScope.textContent = data?.all_patients
+    ? "Tất cả bệnh nhân"
+    : data?.patient_id
+      ? "Một bệnh nhân"
+      : data
+        ? "Không gắn bệnh nhân"
+        : "-";
+  usageBlock.textContent = data?.usage ? JSON.stringify(data.usage, null, 2) : "-";
+
+  evidenceList.replaceChildren();
+  const evidence = Array.isArray(data?.evidence) ? data.evidence : [];
+  if (!evidence.length) {
+    evidenceList.append(createPlaceholder("Chưa có dữ liệu tham chiếu."));
+    return;
+  }
+
+  for (const item of evidence) {
+    const node = document.createElement("article");
+    node.className = "evidence-item";
+    node.append(
+      createEl("strong", "", `${item.resource_type || "Resource"} ${item.id || ""}`.trim()),
+      createEl("p", "", item.summary || "-")
+    );
+
+    if (item.data) {
+      const details = document.createElement("details");
+      details.className = "evidence-json";
+      details.append(createEl("summary", "", "Dữ liệu chi tiết"));
+      details.append(createEl("pre", "", JSON.stringify(item.data, null, 2)));
+      node.append(details);
+    }
+    evidenceList.append(node);
+  }
+}
+
+function observationValueText(observation) {
+  if (Array.isArray(observation.components) && observation.components.length) {
+    const components = observation.components
+      .map((component) => {
+        const label = component.code || component.code_text || "Thành phần";
+        return `${label}: ${quantityText(component.value)}`;
+      })
+      .join("; ");
+    return components || "Giá trị: -";
+  }
+  if (observation.value) {
+    return `Giá trị: ${quantityText(observation.value)}`;
+  }
+  if (observation.value_string) {
+    return `Giá trị: ${observation.value_string}`;
+  }
+  if (observation.value_integer !== null && observation.value_integer !== undefined) {
+    return `Giá trị: ${observation.value_integer}`;
+  }
+  return "Giá trị: -";
+}
+
+function quantityText(value) {
+  if (!value || typeof value !== "object") {
+    return "-";
+  }
+  return [value.value, value.unit || value.code]
+    .filter((item) => item !== null && item !== undefined && item !== "")
+    .join(" ") || "-";
+}
+
+function firstText(items) {
+  if (!Array.isArray(items) || !items.length) {
+    return "";
+  }
+  return items[0].text || items[0].display || "";
+}
+
+function formatIdentifiers(identifiers) {
+  if (!Array.isArray(identifiers) || !identifiers.length) {
+    return "";
+  }
+  return identifiers.map((item) => item.value).filter(Boolean).join(", ");
+}
+
+function normalizePatientId(patientId) {
+  return String(patientId || "").replace(/^Patient\//i, "");
 }
 
 function formatGender(gender) {
@@ -189,190 +689,36 @@ function formatGender(gender) {
   return "không rõ";
 }
 
-function renderPlainMessage(text) {
-  const paragraph = document.createElement("p");
-  paragraph.textContent = text;
-  return paragraph;
+function formatDateTime(value) {
+  if (!value) {
+    return "-";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString("vi-VN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
-function renderAssistantAnswer(text) {
-  const answer = String(text || "").trim();
-  const body = document.createElement("div");
-  body.className = "message-body";
-
-  const patientList = renderPatientGroupedAnswer(answer);
-  if (patientList) {
-    body.append(patientList);
-    return body;
-  }
-
-  const delimitedList = renderDelimitedAnswer(answer);
-  if (delimitedList) {
-    body.append(delimitedList);
-    return body;
-  }
-
-  for (const line of answer.split(/\n+/).map((item) => item.trim()).filter(Boolean)) {
-    const paragraph = document.createElement("p");
-    paragraph.textContent = line;
-    body.append(paragraph);
-  }
-
-  if (body.childElementCount === 0) {
-    const paragraph = document.createElement("p");
-    paragraph.textContent = "Không có câu trả lời.";
-    body.append(paragraph);
-  }
-
-  return body;
+function createPlaceholder(text, className = "muted") {
+  return createEl("p", className, text);
 }
 
-function renderPatientGroupedAnswer(text) {
-  const patientMatches = [...text.matchAll(/Patient\/[A-Za-z0-9.-]+/g)];
-  if (patientMatches.length < 2) {
-    return null;
+function createEl(tagName, className, text) {
+  const node = document.createElement(tagName);
+  if (className) {
+    node.className = className;
   }
-
-  const firstPatientIndex = patientMatches[0].index ?? 0;
-  const introText = text.slice(0, firstPatientIndex).replace(/[:\s]+$/, "");
-  const listText = text.slice(firstPatientIndex).replace(/\.$/, "");
-  const items = listText
-    .split(/;\s*(?=Patient\/[A-Za-z0-9.-]+)/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-
-  if (items.length < 2) {
-    return null;
+  if (text !== undefined && text !== null) {
+    node.textContent = text;
   }
-
-  const fragment = document.createDocumentFragment();
-  if (introText) {
-    const intro = document.createElement("p");
-    intro.className = "answer-intro";
-    intro.textContent = introText;
-    fragment.append(intro);
-  }
-
-  fragment.append(buildAnswerList(items.map(parsePatientLine)));
-  return fragment;
-}
-
-function renderDelimitedAnswer(text) {
-  const colonIndex = text.indexOf(":");
-  if (colonIndex < 0) {
-    return null;
-  }
-
-  const introText = text.slice(0, colonIndex).trim();
-  const rawItems = text
-    .slice(colonIndex + 1)
-    .replace(/\.$/, "")
-    .split(/;\s*/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-
-  if (rawItems.length < 2) {
-    return null;
-  }
-
-  const fragment = document.createDocumentFragment();
-  const intro = document.createElement("p");
-  intro.className = "answer-intro";
-  intro.textContent = introText;
-  fragment.append(intro);
-  fragment.append(buildAnswerList(rawItems.map((item) => ({ title: "", detail: item }))));
-  return fragment;
-}
-
-function buildAnswerList(items) {
-  const list = document.createElement("ul");
-  list.className = "answer-list";
-
-  for (const item of items) {
-    const node = document.createElement("li");
-    node.className = "answer-item";
-
-    if (item.title) {
-      const title = document.createElement("strong");
-      title.textContent = item.title;
-      node.append(title);
-    }
-
-    if (item.detail) {
-      const detail = document.createElement("span");
-      detail.textContent = item.detail;
-      node.append(detail);
-    }
-
-    list.append(node);
-  }
-
-  return list;
-}
-
-function parsePatientLine(text) {
-  const match = text.match(/^(Patient\/[A-Za-z0-9.-]+)\s*(?:-\s*|\(([^)]*)\):\s*|:\s*)?(.*)$/);
-  if (!match) {
-    return { title: "", detail: text };
-  }
-
-  const patientId = match[1];
-  const patientName = match[2] ? ` (${match[2]})` : "";
-  const detail = (match[3] || "").trim();
-  return {
-    title: `${patientId}${patientName}`,
-    detail,
-  };
-}
-
-function renderDetails(data) {
-  sessionId.textContent = data.session_id || "-";
-  intent.textContent = data.intent || "-";
-  answerSource.textContent = data.answer_source || "-";
-  toolName.textContent = data.tool_name || "-";
-  responsePatient.textContent = data.patient_id || "-";
-  responseScope.textContent = data.all_patients ? "Tất cả bệnh nhân" : "Một bệnh nhân";
-  observationType.textContent = data.observation_type || "-";
-  usageBlock.textContent = JSON.stringify(data.usage || {}, null, 2);
-
-  evidenceList.replaceChildren();
-  const evidence = Array.isArray(data.evidence) ? data.evidence : [];
-  if (evidence.length === 0) {
-    const empty = document.createElement("p");
-    empty.className = "muted";
-    empty.textContent = "Không có dữ liệu tham chiếu.";
-    evidenceList.append(empty);
-    return;
-  }
-
-  for (const item of evidence) {
-    const node = document.createElement("div");
-    node.className = "evidence-item";
-
-    const title = document.createElement("strong");
-    title.textContent = `${item.resource_type || "Tài nguyên"} ${item.id || ""}`.trim();
-
-    const summary = document.createElement("p");
-    summary.textContent = item.summary || "-";
-
-    node.append(title, summary);
-
-    if (item.data) {
-      const details = document.createElement("details");
-      details.className = "evidence-json";
-
-      const detailsTitle = document.createElement("summary");
-      detailsTitle.textContent = "Dữ liệu chi tiết";
-
-      const json = document.createElement("pre");
-      json.textContent = JSON.stringify(item.data, null, 2);
-
-      details.append(detailsTitle, json);
-      node.append(details);
-    }
-
-    evidenceList.append(node);
-  }
+  return node;
 }
 
 function setStatus(text, state) {
@@ -382,8 +728,8 @@ function setStatus(text, state) {
 
 function setFormDisabled(disabled) {
   sendButton.disabled = disabled;
-  samplePatients.disabled = disabled;
-  sampleMedication.disabled = disabled;
-  sampleObservation.disabled = disabled;
   messageInput.disabled = disabled;
+  document.querySelectorAll("[data-prompt]").forEach((button) => {
+    button.disabled = disabled;
+  });
 }

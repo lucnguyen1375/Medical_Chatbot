@@ -11,12 +11,16 @@ Implemented:
 - Patient search proxy endpoint for chatbot-service FHIR search.
 - Chat response passthrough for ambiguous patient selection fields.
 - `POST /api/chat` creates or reuses an app chat session, stores user/assistant messages, calls `chatbot-service`, stores an enhanced usage log, and writes an audit log.
+- Chat history read APIs for the demo user:
+  - `GET /api/chat/sessions?limit=20`
+  - `GET /api/chat/sessions/{sessionId}/messages`
 - Basic exception handling for chatbot-service errors.
 - App PostgreSQL datasource configuration.
 - Package layout now follows `config`, `controller`, `dto`, `entity`, `enums`, `exception`, `mapper`, `repository`, `service`.
 - JDBC SQL access is isolated in repository classes instead of `ChatApplicationService`.
 - Flyway migrations for minimum app tables, demo user/quota seed data, enhanced usage logging, and audit logs.
 - Controller tests for health, patient proxy, validation, and chat response mapping.
+- Controller/service tests for chat session history and session ownership checks.
 
 Not implemented yet:
 
@@ -62,6 +66,8 @@ GET http://localhost:8081/api/patients/demo-patient-001
 GET http://localhost:8081/api/patients/demo-patient-001/observations?limit=5
 GET http://localhost:8081/api/patients/demo-patient-001/conditions
 GET http://localhost:8081/api/patients/demo-patient-001/medications
+GET http://localhost:8081/api/chat/sessions?limit=3
+GET http://localhost:8081/api/chat/sessions/{sessionId}/messages
 POST http://localhost:8081/api/chat
 ```
 
@@ -76,6 +82,7 @@ Spring Boot dev server: http://localhost:8081
 Spring -> chatbot-service -> HAPI FHIR integration: passed
 Patient search proxy endpoint: passed
 Ambiguous patient selection fields passthrough: passed
+Chat history session/message APIs: passed
 App PostgreSQL migration V1/V2/V3: passed
 Created app tables: app_users, quota_policies, chat_sessions, chat_messages, usage_logs, cache_entries, audit_logs
 POST /api/chat persisted 1 chat session, 1 user message, 1 assistant message, 1 enhanced usage log, and 1 audit log

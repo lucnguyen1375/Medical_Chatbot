@@ -36,6 +36,9 @@ OBSERVATION_KEYWORDS = [
     "cholesterol",
     "hba1c",
     "lab",
+    "chi so",
+    "xet nghiem",
+    "ket qua",
     "huyet ap",
     "duong huyet",
     "nhip tim",
@@ -652,7 +655,7 @@ def normalize_patient_id(patient_id: Any) -> str | None:
 def normalize_text(text: str) -> str:
     normalized = unicodedata.normalize("NFD", text)
     without_accents = "".join(char for char in normalized if unicodedata.category(char) != "Mn")
-    return without_accents.lower()
+    return without_accents.lower().replace("đ", "d").replace("Đ", "d")
 
 
 def contains_any(text: str, keywords: list[str]) -> bool:

@@ -1,10 +1,13 @@
 package com.medicalchatbot.backend.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.medicalchatbot.backend.dto.ChatMessagesResponse;
 import com.medicalchatbot.backend.dto.ChatRequest;
 import com.medicalchatbot.backend.dto.ChatResponse;
+import com.medicalchatbot.backend.dto.ChatSessionListResponse;
 import com.medicalchatbot.backend.service.ChatApplicationService;
 import com.medicalchatbot.backend.service.ChatbotServiceClient;
+import java.util.UUID;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -89,5 +92,17 @@ public class ChatbotController {
     @PostMapping("/chat")
     ChatResponse chat(@Valid @RequestBody ChatRequest request) {
         return chatApplicationService.chat(request);
+    }
+
+    @GetMapping("/chat/sessions")
+    ChatSessionListResponse chatSessions(
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int limit
+    ) {
+        return chatApplicationService.recentSessions(limit);
+    }
+
+    @GetMapping("/chat/sessions/{sessionId}/messages")
+    ChatMessagesResponse chatSessionMessages(@PathVariable UUID sessionId) {
+        return chatApplicationService.sessionMessages(sessionId);
     }
 }

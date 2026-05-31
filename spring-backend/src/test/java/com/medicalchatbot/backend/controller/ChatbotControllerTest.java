@@ -7,10 +7,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.medicalchatbot.backend.dto.ChatMessageItem;
+import com.medicalchatbot.backend.dto.ChatMessagesResponse;
 import com.medicalchatbot.backend.dto.ChatRequest;
 import com.medicalchatbot.backend.dto.ChatResponse;
+import com.medicalchatbot.backend.dto.ChatSessionListResponse;
+import com.medicalchatbot.backend.dto.ChatSessionSummary;
 import com.medicalchatbot.backend.service.ChatApplicationService;
 import com.medicalchatbot.backend.service.ChatbotServiceClient;
+import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -153,5 +159,67 @@ class ChatbotControllerTest {
                 .andExpect(jsonPath("$.intent_source").value("llm"))
                 .andExpect(jsonPath("$.answer_source").value("llm"))
                 .andExpect(jsonPath("$.patient_id").value("demo-patient-001"));
+    }
+
+    @Test
+    void chatSessionsReturnRecentSessions() throws Exception {
+        UUID sessionId = UUID.fromString("00000000-0000-0000-0000-000000000401");
+        when(chatApplicationService.recentSessions(20))
+                .thenReturn(new ChatSessionListResponse(List.of(new ChatSessionSummary(
+                        sessionId,
+                        "Thuốc của bệnh nhân 001",
+                        OffsetDateTime.parse("2026-05-31T10:00:00Z"),
+                        OffsetDateTime.parse("2026-05-31T10:05:00Z"),
+                        "demo-patient-001",
+                        2,
+                        "Theo dữ liệu FHIR..."
+                ))));
+
+        mockMvc.perform(get("/api/chat/sessions"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessions[0].id").value(sessionId.toString()))
+                .andExpect(jsonPath("$.sessions[0].title").value("Thuốc của bệnh nhân 001"))
+                .andExpect(jsonPath("$.sessions[0].active_patient_id").value("demo-patient-001"))
+                .andExpect(jsonPath("$.sessions[0].message_count").value(2))
+                .andExpect(jsonPath("$.sessions[0].last_message_preview").value("Theo dữ liệu FHIR..."));
+    }
+
+    @Test
+    void chatSessionsRejectInvalidLimit() throws Exception {
+        mockMvc.perform(get("/api/chat/sessions?limit=0"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void chatSessionMessagesReturnMessages() throws Exception {
+        UUID sessionId = UUID.fromString("00000000-0000-0000-0000-000000000402");
+        UUID userMessageId = UUID.fromString("00000000-0000-0000-0000-000000000501");
+        UUID assistantMessageId = UUID.fromString("00000000-0000-0000-0000-000000000502");
+        when(chatApplicationService.sessionMessages(sessionId))
+                .thenReturn(new ChatMessagesResponse(
+                        sessionId,
+                        List.of(
+                                new ChatMessageItem(
+                                        userMessageId,
+                                        "user",
+                                        "Bệnh nhân này dùng thuốc gì?",
+                                        OffsetDateTime.parse("2026-05-31T10:00:00Z")
+                                ),
+                                new ChatMessageItem(
+                                        assistantMessageId,
+                                        "assistant",
+                                        "Theo dữ liệu FHIR...",
+                                        OffsetDateTime.parse("2026-05-31T10:00:05Z")
+                                )
+                        )
+                ));
+
+        mockMvc.perform(get("/api/chat/sessions/{sessionId}/messages", sessionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.session_id").value(sessionId.toString()))
+                .andExpect(jsonPath("$.messages[0].id").value(userMessageId.toString()))
+                .andExpect(jsonPath("$.messages[0].role").value("user"))
+                .andExpect(jsonPath("$.messages[0].content").value("Bệnh nhân này dùng thuốc gì?"))
+                .andExpect(jsonPath("$.messages[1].role").value("assistant"));
     }
 }

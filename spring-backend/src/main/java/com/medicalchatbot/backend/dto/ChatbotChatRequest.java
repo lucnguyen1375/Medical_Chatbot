@@ -12,6 +12,9 @@ public record ChatbotChatRequest(
         String message,
 
         @JsonProperty("patient_id")
-        String patientId
+        String patientId,
+
+        @JsonProperty("conversation_context")
+        ConversationContext conversationContext
 ) {
 }
