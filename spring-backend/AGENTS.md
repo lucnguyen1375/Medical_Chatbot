@@ -10,12 +10,12 @@ Implemented:
 - Frontend-facing REST endpoints under `/api`.
 - Patient search proxy endpoint for chatbot-service FHIR search.
 - Chat response passthrough for ambiguous patient selection fields.
-- `POST /api/chat` creates or reuses an app chat session, stores user/assistant messages, calls `chatbot-service`, and stores a usage log.
+- `POST /api/chat` creates or reuses an app chat session, stores user/assistant messages, calls `chatbot-service`, stores an enhanced usage log, and writes an audit log.
 - Basic exception handling for chatbot-service errors.
 - App PostgreSQL datasource configuration.
 - Package layout now follows `config`, `controller`, `dto`, `entity`, `enums`, `exception`, `mapper`, `repository`, `service`.
 - JDBC SQL access is isolated in repository classes instead of `ChatApplicationService`.
-- Flyway migrations for minimum app tables and demo user/quota seed data.
+- Flyway migrations for minimum app tables, demo user/quota seed data, enhanced usage logging, and audit logs.
 - Controller tests for health, patient proxy, validation, and chat response mapping.
 
 Not implemented yet:
@@ -52,7 +52,7 @@ cd spring-backend
 
 ## Verified Endpoints
 
-Last checked on 2026-05-30:
+Last checked on 2026-05-31:
 
 ```text
 GET http://localhost:8081/api/health
@@ -76,7 +76,7 @@ Spring Boot dev server: http://localhost:8081
 Spring -> chatbot-service -> HAPI FHIR integration: passed
 Patient search proxy endpoint: passed
 Ambiguous patient selection fields passthrough: passed
-App PostgreSQL migration: passed
-Created app tables: app_users, quota_policies, chat_sessions, chat_messages, usage_logs, cache_entries
-POST /api/chat persisted 1 chat session, 1 user message, 1 assistant message, and 1 usage log
+App PostgreSQL migration V1/V2/V3: passed
+Created app tables: app_users, quota_policies, chat_sessions, chat_messages, usage_logs, cache_entries, audit_logs
+POST /api/chat persisted 1 chat session, 1 user message, 1 assistant message, 1 enhanced usage log, and 1 audit log
 ```

@@ -108,6 +108,8 @@ Relevant response fields:
 answer_source: llm | template | template_fallback | template_no_evidence | template_patient_selection
 answer_usage: token usage for answer generation only
 usage: combined intent + answer usage
+llm_provider: configured LLM provider, used by Spring usage logging
+llm_model: configured LLM model, used by Spring usage logging
 ```
 
 ## Evidence Shape

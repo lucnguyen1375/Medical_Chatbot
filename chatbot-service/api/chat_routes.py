@@ -4,6 +4,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
+from app.config import get_settings
 from agents.answer_generator import AnswerGenerator, combine_usage, get_answer_generator
 from agents.intent_extractor import (
     CONDITION_KEYWORDS,
@@ -818,9 +819,12 @@ async def _finalize_chat_response(
 
 
 def _with_plan_metadata(payload: dict[str, Any], plan: IntentPlan) -> dict[str, Any]:
+    settings = get_settings()
     payload["usage"] = plan.usage
     payload["tool_name"] = plan.tool_name
     payload["intent_source"] = plan.source
+    payload["llm_provider"] = settings.llm_provider
+    payload["llm_model"] = settings.llm_model
     if plan.all_patients:
         payload["all_patients"] = True
     if plan.observation_type:

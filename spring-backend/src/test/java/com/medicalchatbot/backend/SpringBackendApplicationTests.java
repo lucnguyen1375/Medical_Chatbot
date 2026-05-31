@@ -1,6 +1,7 @@
 package com.medicalchatbot.backend;
 
 import com.medicalchatbot.backend.repository.AppUserRepository;
+import com.medicalchatbot.backend.repository.AuditLogRepository;
 import com.medicalchatbot.backend.repository.ChatMessageRepository;
 import com.medicalchatbot.backend.repository.ChatSessionRepository;
 import com.medicalchatbot.backend.repository.UsageLogRepository;
@@ -23,6 +24,9 @@ class SpringBackendApplicationTests {
 
 	@MockitoBean
 	private UsageLogRepository usageLogRepository;
+
+	@MockitoBean
+	private AuditLogRepository auditLogRepository;
 
 	@MockitoBean
 	private ChatbotServiceClient chatbotServiceClient;

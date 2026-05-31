@@ -4,7 +4,7 @@ This file tracks project progress. Update it whenever a meaningful feature, inte
 
 ## Current Snapshot
 
-Last updated: 2026-05-30
+Last updated: 2026-05-31
 
 The project currently has an end-to-end demo flow:
 
@@ -17,7 +17,7 @@ Frontend
   -> HAPI FHIR
   -> normalized evidence
   -> LLM Vietnamese answer generation
-  -> Spring persists chat history and usage
+  -> Spring persists chat history, usage logs, and audit logs
   -> Frontend displays answer and evidence
 ```
 
@@ -88,7 +88,7 @@ Completed:
 Verified:
 
 - `python -m unittest discover tests`
-- Latest result: 49 tests passed.
+- Latest result: 52 tests passed.
 - `GET http://localhost:8000/patients/demo-patient-002` returns `Tran Thi B`.
 - `GET http://localhost:8000/patients?name=Tran%20Thi%20B&limit=5` returns `demo-patient-002`.
 - Chat request `tim benh nhan Tran Thi B` returns matching Patient evidence.
@@ -126,6 +126,8 @@ Completed:
   - `usage_logs`
   - `cache_entries`
 - Persisted chat sessions, user messages, assistant messages, and usage logs.
+- Upgraded `usage_logs` with LLM provider/model, operation, status, latency, and error fields.
+- Added `audit_logs` for important application events.
 
 Verified:
 
@@ -190,6 +192,40 @@ Verified:
   - `patient_id=demo-patient-006`
   - routed to `get_patient_by_id`.
 
+### 6. App Usage And Audit Logging
+
+Status: Done for current demo scope
+
+Completed:
+
+- Added Flyway migration `V3__upgrade_usage_logs_and_add_audit_logs.sql`.
+- Upgraded `usage_logs` with:
+  - `llm_provider`
+  - `llm_model`
+  - `operation`
+  - `status`
+  - `latency_ms`
+  - `error_message`
+- Added `audit_logs` with:
+  - `user_id`
+  - `session_id`
+  - `action`
+  - `resource_type`
+  - `resource_id`
+  - `metadata_json`
+  - `created_at`
+- Added `AuditLogRepository`.
+- Updated `UsageLogRepository` and `ChatApplicationService` so each successful `POST /api/chat` stores enhanced usage data and a `CHAT_COMPLETED` audit event.
+- Added `llm_provider` and `llm_model` metadata to chatbot-service chat responses so Spring can persist the actual LLM configuration.
+
+Verified:
+
+- `python -m unittest discover tests`
+- `.\mvnw.cmd test -q` with Java 21.
+- Flyway migration V3 applied successfully to `medical_chatbot_app`.
+- Live Spring smoke test inserted a new `usage_logs` row with `openai`, `gpt-4o-mini`, `chat`, `success`, and `latency_ms`.
+- Live Spring smoke test inserted a new `audit_logs` row with action `CHAT_COMPLETED`.
+
 ## Current Capabilities
 
 The system can currently answer questions about:
@@ -245,13 +281,13 @@ Goal:
 
 ### 2. Usage, Cost, And Quota Enforcement
 
-Status: Planned
+Status: Partially done
 
 Goal:
 
 - Enforce daily request limit.
-- Track token usage.
-- Estimate cost by model.
+- Track token usage. Done at log level.
+- Estimate cost by model. Tracking fields exist; real cost calculation still needs pricing logic.
 - Block or warn when quota is exceeded.
 
 ### 3. Frontend Improvements
