@@ -2,13 +2,18 @@ package com.medicalchatbot.backend.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.util.List;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,11 +22,14 @@ import com.medicalchatbot.backend.dto.ChatRequest;
 import com.medicalchatbot.backend.dto.ChatResponse;
 import com.medicalchatbot.backend.dto.ChatSessionMemory;
 import com.medicalchatbot.backend.dto.ChatbotChatRequest;
+import com.medicalchatbot.backend.dto.QuotaStatusResponse;
+import com.medicalchatbot.backend.exception.QuotaExceededException;
 import com.medicalchatbot.backend.repository.AppUserRepository;
 import com.medicalchatbot.backend.repository.AuditLogRepository;
 import com.medicalchatbot.backend.repository.ChatMessageRepository;
 import com.medicalchatbot.backend.repository.ChatSessionRepository;
 import com.medicalchatbot.backend.repository.UsageLogRepository;
+import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -29,7 +37,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
-import java.util.List;
 
 @ExtendWith(MockitoExtension.class)
 class ChatApplicationServiceTest {
@@ -51,6 +58,12 @@ class ChatApplicationServiceTest {
 
     @Mock
     private ChatbotServiceClient chatbotServiceClient;
+
+    @Mock
+    private QuotaService quotaService;
+
+    @Mock
+    private CostEstimationService costEstimationService;
 
     @Test
     void sessionMessagesRejectsSessionOutsideDemoUser() {
@@ -201,6 +214,102 @@ class ChatApplicationServiceTest {
         assertEquals("obs-1", savedMemory.lastResourceId());
     }
 
+    @Test
+    void chatRejectsRequestBeforeCreatingSessionWhenQuotaExceeded() {
+        UUID userId = UUID.fromString("00000000-0000-0000-0000-000000000201");
+        ChatApplicationService service = newService();
+        QuotaStatusResponse quotaStatus = new QuotaStatusResponse(
+                null,
+                "free_demo",
+                1,
+                100000,
+                BigDecimal.ONE,
+                1,
+                0,
+                0,
+                0,
+                BigDecimal.ZERO,
+                0,
+                100000,
+                BigDecimal.ONE,
+                false,
+                "Đã vượt quá hạn mức 1 lượt gọi AI/ngày."
+        );
+
+        when(appUserRepository.findIdByUsername("demo_user")).thenReturn(Optional.of(userId));
+        doThrow(new QuotaExceededException(quotaStatus.blockedReason(), quotaStatus))
+                .when(quotaService)
+                .assertQuotaAvailable(userId);
+
+        assertThrows(
+                QuotaExceededException.class,
+                () -> service.chat(new ChatRequest(null, null, "danh sach benh nhan"))
+        );
+
+        verify(chatSessionRepository, never()).create(any(), any());
+        verify(chatMessageRepository, never()).save(any(), any(), any(), any());
+        verify(chatbotServiceClient, never()).chat(any());
+    }
+
+    @Test
+    void chatSavesSpringEstimatedCostWhenUsageHasTokens() throws Exception {
+        UUID userId = UUID.fromString("00000000-0000-0000-0000-000000000201");
+        UUID sessionId = UUID.fromString("00000000-0000-0000-0000-000000000603");
+        ChatApplicationService service = newService();
+        JsonNode response = new ObjectMapper().readTree("""
+                {
+                  "answer": "Theo du lieu FHIR...",
+                  "intent": "patients",
+                  "tool_name": "search_patients",
+                  "llm_provider": "openai",
+                  "llm_model": "gpt-4.1-mini",
+                  "evidence": [],
+                  "memory_update": {},
+                  "usage": {
+                    "input_tokens": 1000,
+                    "output_tokens": 500,
+                    "estimated_cost_usd": 0
+                  }
+                }
+                """);
+
+        when(appUserRepository.findIdByUsername("demo_user")).thenReturn(Optional.of(userId));
+        when(chatSessionRepository.create(eq(userId), any())).thenReturn(sessionId);
+        when(chatSessionRepository.findMemoryForSession(sessionId, userId)).thenReturn(new ChatSessionMemory(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        ));
+        when(chatSessionRepository.findRecentMessagesForContext(sessionId, userId, 6)).thenReturn(List.of());
+        when(chatbotServiceClient.chat(any(ChatbotChatRequest.class))).thenReturn(response);
+        when(costEstimationService.estimateUsd(
+                eq("openai"),
+                eq("gpt-4.1-mini"),
+                eq(1000),
+                eq(500),
+                eq(BigDecimal.ZERO)
+        )).thenReturn(new BigDecimal("0.001200"));
+
+        service.chat(new ChatRequest(null, null, "danh sach benh nhan"));
+
+        verify(usageLogRepository).save(
+                eq(userId),
+                eq(sessionId),
+                eq("openai"),
+                eq("gpt-4.1-mini"),
+                eq("chat"),
+                eq("success"),
+                anyLong(),
+                eq(1000),
+                eq(500),
+                eq(new BigDecimal("0.001200")),
+                isNull()
+        );
+    }
+
     private ChatApplicationService newService() {
         return new ChatApplicationService(
                 appUserRepository,
@@ -209,6 +318,8 @@ class ChatApplicationServiceTest {
                 usageLogRepository,
                 auditLogRepository,
                 chatbotServiceClient,
+                quotaService,
+                costEstimationService,
                 new ObjectMapper()
         );
     }

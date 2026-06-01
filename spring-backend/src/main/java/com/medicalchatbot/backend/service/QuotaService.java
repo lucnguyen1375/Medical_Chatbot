@@ -1,0 +1,170 @@
+package com.medicalchatbot.backend.service;
+
+import java.math.BigDecimal;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.util.UUID;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.medicalchatbot.backend.dto.QuotaPolicyInfo;
+import com.medicalchatbot.backend.dto.QuotaStatusResponse;
+import com.medicalchatbot.backend.dto.QuotaUsageSummary;
+import com.medicalchatbot.backend.exception.QuotaExceededException;
+import com.medicalchatbot.backend.repository.AppUserRepository;
+import com.medicalchatbot.backend.repository.AuditLogRepository;
+import com.medicalchatbot.backend.repository.QuotaPolicyRepository;
+import com.medicalchatbot.backend.repository.UsageLogRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
+
+@Service
+public class QuotaService {
+
+    private static final String DEMO_USERNAME = "demo_user";
+
+    private final AppUserRepository appUserRepository;
+    private final QuotaPolicyRepository quotaPolicyRepository;
+    private final UsageLogRepository usageLogRepository;
+    private final AuditLogRepository auditLogRepository;
+    private final ObjectMapper objectMapper;
+    private final ZoneId quotaZone;
+
+    @Autowired
+    public QuotaService(
+            AppUserRepository appUserRepository,
+            QuotaPolicyRepository quotaPolicyRepository,
+            UsageLogRepository usageLogRepository,
+            AuditLogRepository auditLogRepository,
+            ObjectMapper objectMapper
+    ) {
+        this(
+                appUserRepository,
+                quotaPolicyRepository,
+                usageLogRepository,
+                auditLogRepository,
+                objectMapper,
+                ZoneId.systemDefault()
+        );
+    }
+
+    QuotaService(
+            AppUserRepository appUserRepository,
+            QuotaPolicyRepository quotaPolicyRepository,
+            UsageLogRepository usageLogRepository,
+            AuditLogRepository auditLogRepository,
+            ObjectMapper objectMapper,
+            ZoneId quotaZone
+    ) {
+        this.appUserRepository = appUserRepository;
+        this.quotaPolicyRepository = quotaPolicyRepository;
+        this.usageLogRepository = usageLogRepository;
+        this.auditLogRepository = auditLogRepository;
+        this.objectMapper = objectMapper;
+        this.quotaZone = quotaZone;
+    }
+
+    public QuotaStatusResponse demoUserStatus() {
+        UUID userId = getDemoUserId();
+        return statusForUser(userId, DEMO_USERNAME);
+    }
+
+    public void assertQuotaAvailable(UUID userId) {
+        QuotaStatusResponse status = statusForUser(userId, null);
+        if (status.allowed()) {
+            return;
+        }
+
+        logQuotaBlocked(userId, status);
+        throw new QuotaExceededException(status.blockedReason(), status);
+    }
+
+    private QuotaStatusResponse statusForUser(UUID userId, String username) {
+        QuotaPolicyInfo policy = quotaPolicyRepository.findByUserId(userId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.INTERNAL_SERVER_ERROR,
+                        "Kh\u00f4ng t\u00ecm th\u1ea5y quota policy cho ng\u01b0\u1eddi d\u00f9ng."
+                ));
+        ZonedDateTime now = ZonedDateTime.now(quotaZone);
+        OffsetDateTime startOfDay = now.toLocalDate().atStartOfDay(quotaZone).toOffsetDateTime();
+        OffsetDateTime startOfNextDay = startOfDay.plusDays(1);
+        QuotaUsageSummary usage = usageLogRepository.summarizeSuccessfulUsage(
+                userId,
+                startOfDay,
+                startOfNextDay
+        );
+
+        int usedTokens = usage.usedTokens();
+        int remainingRequests = remaining(policy.dailyRequestLimit(), usage.usedRequests());
+        int remainingTokens = remaining(policy.dailyTokenLimit(), usedTokens);
+        BigDecimal remainingCost = remaining(policy.dailyCostLimitUsd(), usage.usedCostUsd());
+        String blockedReason = blockedReason(policy, usage, usedTokens);
+
+        return new QuotaStatusResponse(
+                username,
+                policy.policyName(),
+                policy.dailyRequestLimit(),
+                policy.dailyTokenLimit(),
+                policy.dailyCostLimitUsd(),
+                usage.usedRequests(),
+                usage.usedInputTokens(),
+                usage.usedOutputTokens(),
+                usedTokens,
+                usage.usedCostUsd(),
+                remainingRequests,
+                remainingTokens,
+                remainingCost,
+                blockedReason == null,
+                blockedReason
+        );
+    }
+
+    private UUID getDemoUserId() {
+        return appUserRepository.findIdByUsername(DEMO_USERNAME)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.INTERNAL_SERVER_ERROR,
+                        "Kh\u00f4ng t\u00ecm th\u1ea5y ng\u01b0\u1eddi d\u00f9ng demo."
+                ));
+    }
+
+    private String blockedReason(QuotaPolicyInfo policy, QuotaUsageSummary usage, int usedTokens) {
+        if (usage.usedRequests() >= policy.dailyRequestLimit()) {
+            return "\u0110\u00e3 v\u01b0\u1ee3t qu\u00e1 h\u1ea1n m\u1ee9c " + policy.dailyRequestLimit() + " l\u01b0\u1ee3t g\u1ecdi AI/ng\u00e0y.";
+        }
+        if (usedTokens >= policy.dailyTokenLimit()) {
+            return "\u0110\u00e3 v\u01b0\u1ee3t qu\u00e1 h\u1ea1n m\u1ee9c " + policy.dailyTokenLimit() + " token/ng\u00e0y.";
+        }
+        if (usage.usedCostUsd().compareTo(policy.dailyCostLimitUsd()) >= 0) {
+            return "\u0110\u00e3 v\u01b0\u1ee3t qu\u00e1 h\u1ea1n m\u1ee9c chi ph\u00ed AI/ng\u00e0y.";
+        }
+        return null;
+    }
+
+    private int remaining(int limit, int used) {
+        return Math.max(0, limit - used);
+    }
+
+    private BigDecimal remaining(BigDecimal limit, BigDecimal used) {
+        BigDecimal result = limit.subtract(used);
+        return result.signum() < 0 ? BigDecimal.ZERO : result;
+    }
+
+    private void logQuotaBlocked(UUID userId, QuotaStatusResponse status) {
+        ObjectNode metadata = objectMapper.createObjectNode();
+        metadata.put("operation", "quota_check");
+        metadata.put("blocked_reason", status.blockedReason());
+        metadata.set("quota_status", objectMapper.valueToTree(status));
+
+        auditLogRepository.save(
+                userId,
+                null,
+                "QUOTA_BLOCKED",
+                "app_user",
+                userId.toString(),
+                metadata.toString()
+        );
+    }
+}

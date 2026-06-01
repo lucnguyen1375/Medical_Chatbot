@@ -39,4 +39,9 @@ public class ApiExceptionHandler {
         return ResponseEntity.badRequest()
                 .body(Map.of("detail", "Dữ liệu yêu cầu không hợp lệ."));
     }
+    @ExceptionHandler(QuotaExceededException.class)
+    ResponseEntity<Map<String, String>> quotaExceeded(QuotaExceededException exception) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .body(Map.of("detail", exception.getMessage()));
+    }
 }

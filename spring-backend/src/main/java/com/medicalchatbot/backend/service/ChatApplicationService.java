@@ -42,6 +42,8 @@ public class ChatApplicationService {
     private final UsageLogRepository usageLogRepository;
     private final AuditLogRepository auditLogRepository;
     private final ChatbotServiceClient chatbotServiceClient;
+    private final QuotaService quotaService;
+    private final CostEstimationService costEstimationService;
     private final ObjectMapper objectMapper;
 
     public ChatApplicationService(
@@ -51,6 +53,8 @@ public class ChatApplicationService {
             UsageLogRepository usageLogRepository,
             AuditLogRepository auditLogRepository,
             ChatbotServiceClient chatbotServiceClient,
+            QuotaService quotaService,
+            CostEstimationService costEstimationService,
             ObjectMapper objectMapper
     ) {
         this.appUserRepository = appUserRepository;
@@ -59,12 +63,15 @@ public class ChatApplicationService {
         this.usageLogRepository = usageLogRepository;
         this.auditLogRepository = auditLogRepository;
         this.chatbotServiceClient = chatbotServiceClient;
+        this.quotaService = quotaService;
+        this.costEstimationService = costEstimationService;
         this.objectMapper = objectMapper;
     }
 
     @Transactional
     public ChatResponse chat(ChatRequest request) {
         UUID userId = getDemoUserId();
+        quotaService.assertQuotaAvailable(userId);
         UUID sessionId = request.sessionId() == null
                 ? chatSessionRepository.create(userId, titleFromMessage(request.message()))
                 : requireSessionForUser(request.sessionId(), userId);
@@ -152,17 +159,29 @@ public class ChatApplicationService {
 
     private void saveUsage(UUID userId, UUID sessionId, JsonNode chatbotResponse, long latencyMs) {
         JsonNode usage = chatbotResponse.path("usage");
+        String llmProvider = textOrNull(chatbotResponse, "llm_provider");
+        String llmModel = textOrNull(chatbotResponse, "llm_model");
+        int inputTokens = usage.path("input_tokens").asInt(0);
+        int outputTokens = usage.path("output_tokens").asInt(0);
+        BigDecimal estimatedCostUsd = costEstimationService.estimateUsd(
+                llmProvider,
+                llmModel,
+                inputTokens,
+                outputTokens,
+                decimalOrZero(usage.path("estimated_cost_usd"))
+        );
+
         usageLogRepository.save(
                 userId,
                 sessionId,
-                textOrNull(chatbotResponse, "llm_provider"),
-                textOrNull(chatbotResponse, "llm_model"),
+                llmProvider,
+                llmModel,
                 "chat",
                 "success",
                 latencyMs,
-                usage.path("input_tokens").asInt(0),
-                usage.path("output_tokens").asInt(0),
-                BigDecimal.valueOf(usage.path("estimated_cost_usd").asDouble(0)),
+                inputTokens,
+                outputTokens,
+                estimatedCostUsd,
                 null
         );
     }
@@ -330,6 +349,20 @@ public class ChatApplicationService {
             return null;
         }
         return text;
+    }
+
+    private BigDecimal decimalOrZero(JsonNode value) {
+        if (value == null || value.isMissingNode() || value.isNull()) {
+            return BigDecimal.ZERO;
+        }
+        if (value.isNumber()) {
+            return value.decimalValue();
+        }
+        try {
+            return new BigDecimal(value.asText("0"));
+        } catch (NumberFormatException exception) {
+            return BigDecimal.ZERO;
+        }
     }
 
     private String firstNonBlank(String... values) {

@@ -4,6 +4,7 @@ import com.medicalchatbot.backend.repository.AppUserRepository;
 import com.medicalchatbot.backend.repository.AuditLogRepository;
 import com.medicalchatbot.backend.repository.ChatMessageRepository;
 import com.medicalchatbot.backend.repository.ChatSessionRepository;
+import com.medicalchatbot.backend.repository.ModelPricingRepository;
 import com.medicalchatbot.backend.repository.UsageLogRepository;
 import com.medicalchatbot.backend.service.ChatbotServiceClient;
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,9 @@ class SpringBackendApplicationTests {
 
 	@MockitoBean
 	private AuditLogRepository auditLogRepository;
+
+	@MockitoBean
+	private ModelPricingRepository modelPricingRepository;
 
 	@MockitoBean
 	private ChatbotServiceClient chatbotServiceClient;

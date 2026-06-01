@@ -27,6 +27,7 @@ const toolName = document.querySelector("#toolName");
 const responseScope = document.querySelector("#responseScope");
 const evidenceList = document.querySelector("#evidenceList");
 const usageBlock = document.querySelector("#usageBlock");
+const costSummary = document.querySelector("#costSummary");
 
 let selectedPatient = null;
 let currentSessionId = null;
@@ -68,6 +69,7 @@ document.querySelectorAll("[data-prompt]").forEach((button) => {
 apiBaseUrlInput.addEventListener("change", () => {
   clearPatientSearchResults("Nhập thông tin rồi bấm Tìm khi cần chọn bệnh nhân.");
   loadSessions();
+  loadCostSummary();
 });
 
 init();
@@ -77,6 +79,7 @@ async function init() {
   renderEmptyPatientSections();
   clearPatientSearchResults("Nhập thông tin rồi bấm Tìm khi cần chọn bệnh nhân.");
   await loadSessions();
+  await loadCostSummary();
 }
 
 function apiBaseUrl() {
@@ -393,6 +396,7 @@ async function submitChat(message, patientId, displayText) {
     appendMessage("assistant", data.answer || "Không có câu trả lời.", data);
     renderDetails(data);
     await loadSessions();
+    await loadCostSummary();
     setStatus("Sẵn sàng", "ready");
   } catch (error) {
     appendMessage("error", error.message || "Yêu cầu thất bại.");
@@ -627,6 +631,66 @@ function renderDetails(data) {
   }
 }
 
+async function loadCostSummary() {
+  if (!costSummary) {
+    return;
+  }
+
+  costSummary.replaceChildren(createPlaceholder("Đang tải chi phí AI..."));
+  const today = todayIsoDate();
+  try {
+    const [quota, cost] = await Promise.all([
+      apiGet("/api/quota/status"),
+      apiGet(`/api/usage/cost-summary?from=${today}&to=${today}`),
+    ]);
+    renderCostSummary(cost, quota);
+  } catch (error) {
+    costSummary.replaceChildren(createPlaceholder(error.message || "Không tải được chi phí AI.", "error-text"));
+  }
+}
+
+function renderCostSummary(cost, quota) {
+  costSummary.replaceChildren();
+
+  const grid = document.createElement("div");
+  grid.className = "cost-grid";
+  grid.append(
+    costMetric("Token hôm nay", formatInteger(cost?.total_tokens)),
+    costMetric("Chi phí hôm nay", formatUsd(cost?.estimated_cost_usd)),
+    costMetric("Hạn mức/ngày", formatUsd(quota?.daily_cost_limit_usd)),
+    costMetric("Còn lại", formatUsd(quota?.remaining_cost_usd))
+  );
+  costSummary.append(grid);
+
+  const topModel = Array.isArray(cost?.models) && cost.models.length ? cost.models[0] : null;
+  if (topModel) {
+    const modelLine = [
+      topModel.llm_provider,
+      topModel.llm_model,
+      `${formatInteger(topModel.request_count)} lượt`,
+      formatUsd(topModel.estimated_cost_usd),
+    ].filter(Boolean).join(" | ");
+    costSummary.append(createEl("p", "cost-model", `Model chính: ${modelLine}`));
+  } else {
+    costSummary.append(createEl("p", "muted", "Chưa có lượt gọi AI thành công hôm nay."));
+  }
+
+  const missingPricing = Array.isArray(cost?.missing_pricing_models) ? cost.missing_pricing_models : [];
+  if (missingPricing.length) {
+    const models = missingPricing
+      .map((item) => `${item.llm_provider || "-"} / ${item.llm_model || "-"}`)
+      .join(", ");
+    costSummary.append(createEl("p", "cost-warning", `Chưa có bảng giá cho model này: ${models}.`));
+  }
+}
+
+function costMetric(label, value) {
+  const item = document.createElement("div");
+  item.className = "cost-metric";
+  item.append(createEl("span", "", label), createEl("strong", "", value || "-"));
+  return item;
+}
+
 function observationValueText(observation) {
   if (Array.isArray(observation.components) && observation.components.length) {
     const components = observation.components
@@ -704,6 +768,25 @@ function formatDateTime(value) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function todayIsoDate() {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
+function formatInteger(value) {
+  return new Intl.NumberFormat("vi-VN").format(Number(value || 0));
+}
+
+function formatUsd(value) {
+  return new Intl.NumberFormat("vi-VN", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 6,
+    maximumFractionDigits: 6,
+  }).format(Number(value || 0));
 }
 
 function createPlaceholder(text, className = "muted") {

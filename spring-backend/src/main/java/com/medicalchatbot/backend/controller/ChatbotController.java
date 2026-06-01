@@ -5,12 +5,19 @@ import com.medicalchatbot.backend.dto.ChatMessagesResponse;
 import com.medicalchatbot.backend.dto.ChatRequest;
 import com.medicalchatbot.backend.dto.ChatResponse;
 import com.medicalchatbot.backend.dto.ChatSessionListResponse;
+import com.medicalchatbot.backend.dto.CostSummaryResponse;
+import com.medicalchatbot.backend.dto.ModelPricingListResponse;
+import com.medicalchatbot.backend.dto.QuotaStatusResponse;
 import com.medicalchatbot.backend.service.ChatApplicationService;
 import com.medicalchatbot.backend.service.ChatbotServiceClient;
+import com.medicalchatbot.backend.service.CostManagementService;
+import com.medicalchatbot.backend.service.QuotaService;
+import java.time.LocalDate;
 import java.util.UUID;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -27,13 +34,19 @@ public class ChatbotController {
 
     private final ChatbotServiceClient chatbotServiceClient;
     private final ChatApplicationService chatApplicationService;
+    private final QuotaService quotaService;
+    private final CostManagementService costManagementService;
 
     public ChatbotController(
             ChatbotServiceClient chatbotServiceClient,
-            ChatApplicationService chatApplicationService
+            ChatApplicationService chatApplicationService,
+            QuotaService quotaService,
+            CostManagementService costManagementService
     ) {
         this.chatbotServiceClient = chatbotServiceClient;
         this.chatApplicationService = chatApplicationService;
+        this.quotaService = quotaService;
+        this.costManagementService = costManagementService;
     }
 
     @GetMapping("/chatbot/status")
@@ -104,5 +117,23 @@ public class ChatbotController {
     @GetMapping("/chat/sessions/{sessionId}/messages")
     ChatMessagesResponse chatSessionMessages(@PathVariable UUID sessionId) {
         return chatApplicationService.sessionMessages(sessionId);
+    }
+
+    @GetMapping("/quota/status")
+    QuotaStatusResponse quotaStatus() {
+        return quotaService.demoUserStatus();
+    }
+
+    @GetMapping("/usage/cost-summary")
+    CostSummaryResponse costSummary(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to
+    ) {
+        return costManagementService.demoUserCostSummary(from, to);
+    }
+
+    @GetMapping("/model-pricing")
+    ModelPricingListResponse modelPricing() {
+        return costManagementService.activePricing();
     }
 }

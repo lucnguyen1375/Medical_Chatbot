@@ -17,6 +17,8 @@ Frontend
   -> HAPI FHIR
   -> normalized evidence
   -> LLM Vietnamese answer generation
+  -> Spring checks daily quota before calling AI
+  -> Spring estimates AI cost from model pricing
   -> Spring persists chat history, usage logs, and audit logs
   -> Staff Demo Dashboard displays selected patient context, chat history, answer, and evidence
 ```
@@ -298,6 +300,64 @@ Verified:
 - `node --check frontend/app.js`
 - `.\mvnw.cmd test -q` with Java 21 after setting `JAVA_HOME` to `C:\Program Files\Java\jdk-21.0.11`.
 
+### 9. Quota Management V1
+
+Status: Done for current demo scope
+
+Completed:
+
+- Added `QuotaService` in Spring.
+- Added quota policy lookup from existing `quota_policies` and `app_users.quota_policy_id`.
+- Added daily usage aggregation from existing `usage_logs`.
+- Spring now checks quota before creating a chat session, saving a message, or calling `chatbot-service`.
+- If the daily quota is exceeded, `POST /api/chat` returns HTTP `429 Too Many Requests`.
+- Added `GET /api/quota/status` for the current `demo_user`.
+- Added `QUOTA_BLOCKED` audit log event when a request is blocked by quota.
+- Kept the V1 scope simple:
+  - no new quota counter table
+  - no Admin quota editing UI yet
+  - no group-level quota enforcement yet
+
+Verified:
+
+- `.\mvnw.cmd test -q` with Java 21 after setting `JAVA_HOME` to `C:\Program Files\Java\jdk-21.0.11`.
+
+Follow-up fix:
+
+- Restarted Spring backend so runtime loads the new quota endpoint and enforcement code.
+- Verified `GET /api/quota/status` returns current `demo_user` quota status.
+- Verified `POST /api/chat` returns HTTP `429` when `daily_request_limit = 1` has already been reached.
+- Fixed quota blocked reason strings in `QuotaService` so HTTP responses return readable Vietnamese instead of mojibake.
+
+### 10. Cost Management V1
+
+Status: Done for current demo scope
+
+Completed:
+
+- Added Flyway migration `V5__add_model_pricing_and_cost_backfill.sql`.
+- Added `model_pricing` table with active OpenAI demo pricing:
+  - `gpt-4.1-mini`
+  - `gpt-4o-mini`
+- Backfilled existing `usage_logs.estimated_cost_usd` where provider, model, and token counts matched pricing.
+- Added `CostEstimationService` in Spring to calculate cost from input/output tokens and model pricing.
+- Updated `ChatApplicationService` so Spring calculates cost before saving `usage_logs`.
+- Kept `usage_logs` as the V1 per-request cost log; no separate `cost_logs` table yet.
+- Added cost APIs:
+  - `GET /api/model-pricing`
+  - `GET /api/usage/cost-summary?from=YYYY-MM-DD&to=YYYY-MM-DD`
+- Cost summary returns totals, model breakdown, daily breakdown, and missing-pricing models.
+- Frontend Staff Demo Dashboard now shows a small `Chi phí AI` panel with today's tokens, cost, cost limit, remaining cost, and top model.
+- `daily_cost_limit_usd` in quota now works with real estimated cost values.
+
+Verified:
+
+- `node --check frontend/app.js`
+- `.\mvnw.cmd test -q` with Java 21 after setting `JAVA_HOME` to `C:\Program Files\Java\jdk-21.0.11`.
+- Spring restarted and Flyway V5 applied successfully.
+- `GET http://localhost:8081/api/model-pricing` returned active model prices.
+- `GET http://localhost:8081/api/usage/cost-summary?from=2026-06-01&to=2026-06-01` returned today's request, token, and cost totals.
+
 ## Current Capabilities
 
 The system can currently answer questions about:
@@ -320,6 +380,8 @@ The system can currently answer questions about:
 - Chat session history loading.
 - Session-level active patient memory.
 - Compact evidence reference memory for follow-up questions.
+- Daily AI quota status and quota blocking before AI calls.
+- Daily AI cost estimate and model pricing status.
 
 Example questions:
 
@@ -344,6 +406,8 @@ chi so do co cao khong
 - Patient names are stored in FHIR using `family` and `given`, but displayed in Vietnamese order by the normalizer.
 - LLM output must be grounded in normalized FHIR evidence.
 - Session memory stores compact references and summaries; detailed structured data is re-read from FHIR when needed.
+- Quota V1 uses app database `quota_policies` plus daily aggregation from `usage_logs`; it does not maintain a separate counter table.
+- Cost V1 uses `model_pricing` plus `usage_logs.estimated_cost_usd`; it does not create a separate `cost_logs` table yet.
 
 ## Next Recommended Milestones
 
@@ -359,16 +423,17 @@ Goal:
   - what hypertension means
   - what a medication is commonly used for
 
-### 2. Usage, Cost, And Quota Enforcement
+### 2. Admin Cost And Quota UI
 
 Status: Partially done
 
 Goal:
 
-- Enforce daily request limit.
+- Enforce daily request limit. Done for demo scope.
 - Track token usage. Done at log level.
-- Estimate cost by model. Tracking fields exist; real cost calculation still needs pricing logic.
-- Block or warn when quota is exceeded.
+- Estimate cost by model. Done for demo scope.
+- Show quota/cost status in Staff Demo Dashboard. Done in compact form.
+- Add Admin Dashboard for editing quotas/pricing and viewing longer-range cost statistics.
 
 ### 3. Frontend Improvements
 

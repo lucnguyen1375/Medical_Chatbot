@@ -1,5 +1,6 @@
 package com.medicalchatbot.backend.controller;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -13,8 +14,20 @@ import com.medicalchatbot.backend.dto.ChatRequest;
 import com.medicalchatbot.backend.dto.ChatResponse;
 import com.medicalchatbot.backend.dto.ChatSessionListResponse;
 import com.medicalchatbot.backend.dto.ChatSessionSummary;
+import com.medicalchatbot.backend.dto.CostByDay;
+import com.medicalchatbot.backend.dto.CostByModel;
+import com.medicalchatbot.backend.dto.CostSummaryResponse;
+import com.medicalchatbot.backend.dto.MissingPricingModel;
+import com.medicalchatbot.backend.dto.ModelPricingInfo;
+import com.medicalchatbot.backend.dto.ModelPricingListResponse;
+import com.medicalchatbot.backend.dto.QuotaStatusResponse;
+import com.medicalchatbot.backend.exception.QuotaExceededException;
 import com.medicalchatbot.backend.service.ChatApplicationService;
 import com.medicalchatbot.backend.service.ChatbotServiceClient;
+import com.medicalchatbot.backend.service.CostManagementService;
+import com.medicalchatbot.backend.service.QuotaService;
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -39,6 +52,12 @@ class ChatbotControllerTest {
 
     @MockitoBean
     private ChatApplicationService chatApplicationService;
+
+    @MockitoBean
+    private QuotaService quotaService;
+
+    @MockitoBean
+    private CostManagementService costManagementService;
 
     @Test
     void patientReturnsChatbotServicePayload() throws Exception {
@@ -162,6 +181,39 @@ class ChatbotControllerTest {
     }
 
     @Test
+    void chatReturnsTooManyRequestsWhenQuotaExceeded() throws Exception {
+        QuotaStatusResponse quotaStatus = new QuotaStatusResponse(
+                "demo_user",
+                "free_demo",
+                1,
+                100000,
+                BigDecimal.ONE,
+                1,
+                0,
+                0,
+                0,
+                BigDecimal.ZERO,
+                0,
+                100000,
+                BigDecimal.ONE,
+                false,
+                "Đã vượt quá hạn mức 1 lượt gọi AI/ngày."
+        );
+        when(chatApplicationService.chat(any(ChatRequest.class)))
+                .thenThrow(new QuotaExceededException(quotaStatus.blockedReason(), quotaStatus));
+
+        mockMvc.perform(post("/api/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "message": "danh sach benh nhan"
+                                }
+                                """))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.detail").value("Đã vượt quá hạn mức 1 lượt gọi AI/ngày."));
+    }
+
+    @Test
     void chatSessionsReturnRecentSessions() throws Exception {
         UUID sessionId = UUID.fromString("00000000-0000-0000-0000-000000000401");
         when(chatApplicationService.recentSessions(20))
@@ -221,5 +273,118 @@ class ChatbotControllerTest {
                 .andExpect(jsonPath("$.messages[0].role").value("user"))
                 .andExpect(jsonPath("$.messages[0].content").value("Bệnh nhân này dùng thuốc gì?"))
                 .andExpect(jsonPath("$.messages[1].role").value("assistant"));
+    }
+
+    @Test
+    void quotaStatusReturnsDemoUserQuota() throws Exception {
+        when(quotaService.demoUserStatus()).thenReturn(new QuotaStatusResponse(
+                "demo_user",
+                "free_demo",
+                50,
+                100000,
+                new BigDecimal("1.00"),
+                12,
+                3000,
+                500,
+                3500,
+                new BigDecimal("0.20"),
+                38,
+                96500,
+                new BigDecimal("0.80"),
+                true,
+                null
+        ));
+
+        mockMvc.perform(get("/api/quota/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user").value("demo_user"))
+                .andExpect(jsonPath("$.policy").value("free_demo"))
+                .andExpect(jsonPath("$.daily_request_limit").value(50))
+                .andExpect(jsonPath("$.used_requests").value(12))
+                .andExpect(jsonPath("$.remaining_requests").value(38))
+                .andExpect(jsonPath("$.allowed").value(true));
+    }
+
+    @Test
+    void costSummaryReturnsDemoUserCostSummary() throws Exception {
+        when(costManagementService.demoUserCostSummary(
+                LocalDate.parse("2026-06-01"),
+                LocalDate.parse("2026-06-01")
+        )).thenReturn(new CostSummaryResponse(
+                LocalDate.parse("2026-06-01"),
+                LocalDate.parse("2026-06-01"),
+                2,
+                3000,
+                700,
+                3700,
+                new BigDecimal("0.002320"),
+                List.of(new CostByModel(
+                        "openai",
+                        "gpt-4.1-mini",
+                        2,
+                        3000,
+                        700,
+                        3700,
+                        new BigDecimal("0.002320")
+                )),
+                List.of(new CostByDay(
+                        LocalDate.parse("2026-06-01"),
+                        2,
+                        3000,
+                        700,
+                        3700,
+                        new BigDecimal("0.002320")
+                )),
+                List.of(new MissingPricingModel("openai", "custom-model", 1))
+        ));
+
+        mockMvc.perform(get("/api/usage/cost-summary?from=2026-06-01&to=2026-06-01"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.from").value("2026-06-01"))
+                .andExpect(jsonPath("$.to").value("2026-06-01"))
+                .andExpect(jsonPath("$.request_count").value(2))
+                .andExpect(jsonPath("$.input_tokens").value(3000))
+                .andExpect(jsonPath("$.output_tokens").value(700))
+                .andExpect(jsonPath("$.total_tokens").value(3700))
+                .andExpect(jsonPath("$.estimated_cost_usd").value(0.002320))
+                .andExpect(jsonPath("$.models[0].llm_provider").value("openai"))
+                .andExpect(jsonPath("$.models[0].llm_model").value("gpt-4.1-mini"))
+                .andExpect(jsonPath("$.days[0].date").value("2026-06-01"))
+                .andExpect(jsonPath("$.missing_pricing_models[0].llm_model").value("custom-model"));
+    }
+
+    @Test
+    void costSummaryRejectsInvalidDateRange() throws Exception {
+        when(costManagementService.demoUserCostSummary(
+                LocalDate.parse("2026-06-02"),
+                LocalDate.parse("2026-06-01")
+        )).thenThrow(new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.BAD_REQUEST,
+                "Invalid date range"
+        ));
+
+        mockMvc.perform(get("/api/usage/cost-summary?from=2026-06-02&to=2026-06-01"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void modelPricingReturnsActivePricing() throws Exception {
+        when(costManagementService.activePricing()).thenReturn(new ModelPricingListResponse(List.of(
+                new ModelPricingInfo(
+                        "openai",
+                        "gpt-4.1-mini",
+                        new BigDecimal("0.400000"),
+                        new BigDecimal("1.600000"),
+                        "USD"
+                )
+        )));
+
+        mockMvc.perform(get("/api/model-pricing"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pricing[0].provider").value("openai"))
+                .andExpect(jsonPath("$.pricing[0].model").value("gpt-4.1-mini"))
+                .andExpect(jsonPath("$.pricing[0].input_price_per_1m_tokens").value(0.400000))
+                .andExpect(jsonPath("$.pricing[0].output_price_per_1m_tokens").value(1.600000))
+                .andExpect(jsonPath("$.pricing[0].currency").value("USD"));
     }
 }

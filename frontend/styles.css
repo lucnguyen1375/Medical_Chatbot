@@ -483,6 +483,53 @@ label {
   gap: 8px;
 }
 
+.cost-summary {
+  display: grid;
+  gap: 10px;
+}
+
+.cost-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.cost-metric {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-soft);
+}
+
+.cost-metric span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.cost-metric strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.cost-model {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.cost-warning {
+  padding: 8px;
+  border: 1px solid #ffd8a8;
+  border-radius: 6px;
+  background: #fff4df;
+  color: var(--warning);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .metadata div {
   display: grid;
   gap: 3px;
@@ -605,7 +652,8 @@ pre {
   }
 
   .compact-search,
-  .summary-grid {
+  .summary-grid,
+  .cost-grid {
     grid-template-columns: 1fr;
   }
 
