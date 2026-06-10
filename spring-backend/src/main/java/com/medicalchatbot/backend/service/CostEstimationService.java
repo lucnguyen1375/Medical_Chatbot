@@ -3,7 +3,7 @@ package com.medicalchatbot.backend.service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 
-import com.medicalchatbot.backend.dto.ModelPricingInfo;
+import com.medicalchatbot.backend.dto.response.ModelPricingInfo;
 import com.medicalchatbot.backend.repository.ModelPricingRepository;
 import org.springframework.stereotype.Service;
 

@@ -3,43 +3,24 @@ package com.medicalchatbot.backend.repository;
 import java.util.Optional;
 import java.util.UUID;
 
-import com.medicalchatbot.backend.dto.QuotaPolicyInfo;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.stereotype.Repository;
+import com.medicalchatbot.backend.dto.response.QuotaPolicyInfo;
+import com.medicalchatbot.backend.entity.QuotaPolicy;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
-@Repository
-public class QuotaPolicyRepository {
+public interface QuotaPolicyRepository extends JpaRepository<QuotaPolicy, UUID> {
 
-    private final JdbcTemplate jdbcTemplate;
-
-    public QuotaPolicyRepository(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
-    }
-
-    public Optional<QuotaPolicyInfo> findByUserId(UUID userId) {
-        return jdbcTemplate.query(
-                """
-                select
-                    q.name,
-                    q.daily_request_limit,
-                    q.daily_token_limit,
-                    q.daily_cost_limit_usd
-                from app_users u
-                join quota_policies q on q.id = u.quota_policy_id
-                where u.id = ?
-                """,
-                rs -> {
-                    if (!rs.next()) {
-                        return Optional.empty();
-                    }
-                    return Optional.of(new QuotaPolicyInfo(
-                            rs.getString("name"),
-                            rs.getInt("daily_request_limit"),
-                            rs.getInt("daily_token_limit"),
-                            rs.getBigDecimal("daily_cost_limit_usd")
-                    ));
-                },
-                userId
-        );
-    }
+    @Query("""
+            select new com.medicalchatbot.backend.dto.response.QuotaPolicyInfo(
+                q.name,
+                q.dailyRequestLimit,
+                q.dailyTokenLimit,
+                q.dailyCostLimitUsd
+            )
+            from User u
+            join u.quotaPolicy q
+            where u.id = :userId
+            """)
+    Optional<QuotaPolicyInfo> findByUserId(@Param("userId") UUID userId);
 }

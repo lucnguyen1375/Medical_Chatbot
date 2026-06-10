@@ -14,12 +14,12 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-import com.medicalchatbot.backend.dto.CostByDay;
-import com.medicalchatbot.backend.dto.CostByModel;
-import com.medicalchatbot.backend.dto.CostSummaryResponse;
-import com.medicalchatbot.backend.dto.MissingPricingModel;
-import com.medicalchatbot.backend.repository.AppUserRepository;
+import com.medicalchatbot.backend.dto.response.CostByDay;
+import com.medicalchatbot.backend.dto.response.CostByModel;
+import com.medicalchatbot.backend.dto.response.CostSummaryResponse;
+import com.medicalchatbot.backend.dto.response.MissingPricingModel;
 import com.medicalchatbot.backend.repository.ModelPricingRepository;
+import com.medicalchatbot.backend.repository.UserRepository;
 import com.medicalchatbot.backend.repository.UsageLogRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,7 +32,7 @@ import org.springframework.web.server.ResponseStatusException;
 class CostManagementServiceTest {
 
     @Mock
-    private AppUserRepository appUserRepository;
+    private UserRepository userRepository;
 
     @Mock
     private UsageLogRepository usageLogRepository;
@@ -63,7 +63,7 @@ class CostManagementServiceTest {
         );
         MissingPricingModel missingPricing = new MissingPricingModel("openai", "custom-model", 1);
 
-        when(appUserRepository.findIdByUsername("demo_user")).thenReturn(Optional.of(userId));
+        when(userRepository.findIdByUsername("demo_user")).thenReturn(Optional.of(userId));
         when(usageLogRepository.summarizeCost(
                 eq(userId),
                 any(OffsetDateTime.class),
@@ -129,7 +129,7 @@ class CostManagementServiceTest {
 
     private CostManagementService newService() {
         return new CostManagementService(
-                appUserRepository,
+                userRepository,
                 usageLogRepository,
                 modelPricingRepository,
                 ZoneId.of("Asia/Saigon")

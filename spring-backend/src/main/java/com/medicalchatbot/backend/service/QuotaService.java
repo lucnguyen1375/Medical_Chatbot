@@ -8,13 +8,14 @@ import java.util.UUID;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.medicalchatbot.backend.dto.QuotaPolicyInfo;
-import com.medicalchatbot.backend.dto.QuotaStatusResponse;
-import com.medicalchatbot.backend.dto.QuotaUsageSummary;
+import com.medicalchatbot.backend.dto.response.QuotaPolicyInfo;
+import com.medicalchatbot.backend.dto.response.QuotaStatusResponse;
+import com.medicalchatbot.backend.dto.response.QuotaUsageSummary;
+import com.medicalchatbot.backend.entity.User;
 import com.medicalchatbot.backend.exception.QuotaExceededException;
-import com.medicalchatbot.backend.repository.AppUserRepository;
 import com.medicalchatbot.backend.repository.AuditLogRepository;
 import com.medicalchatbot.backend.repository.QuotaPolicyRepository;
+import com.medicalchatbot.backend.repository.UserRepository;
 import com.medicalchatbot.backend.repository.UsageLogRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -26,7 +27,7 @@ public class QuotaService {
 
     private static final String DEMO_USERNAME = "demo_user";
 
-    private final AppUserRepository appUserRepository;
+    private final UserRepository userRepository;
     private final QuotaPolicyRepository quotaPolicyRepository;
     private final UsageLogRepository usageLogRepository;
     private final AuditLogRepository auditLogRepository;
@@ -35,14 +36,14 @@ public class QuotaService {
 
     @Autowired
     public QuotaService(
-            AppUserRepository appUserRepository,
+            UserRepository userRepository,
             QuotaPolicyRepository quotaPolicyRepository,
             UsageLogRepository usageLogRepository,
             AuditLogRepository auditLogRepository,
             ObjectMapper objectMapper
     ) {
         this(
-                appUserRepository,
+                userRepository,
                 quotaPolicyRepository,
                 usageLogRepository,
                 auditLogRepository,
@@ -52,14 +53,14 @@ public class QuotaService {
     }
 
     QuotaService(
-            AppUserRepository appUserRepository,
+            UserRepository userRepository,
             QuotaPolicyRepository quotaPolicyRepository,
             UsageLogRepository usageLogRepository,
             AuditLogRepository auditLogRepository,
             ObjectMapper objectMapper,
             ZoneId quotaZone
     ) {
-        this.appUserRepository = appUserRepository;
+        this.userRepository = userRepository;
         this.quotaPolicyRepository = quotaPolicyRepository;
         this.usageLogRepository = usageLogRepository;
         this.auditLogRepository = auditLogRepository;
@@ -123,7 +124,7 @@ public class QuotaService {
     }
 
     private UUID getDemoUserId() {
-        return appUserRepository.findIdByUsername(DEMO_USERNAME)
+        return userRepository.findIdByUsername(DEMO_USERNAME)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.INTERNAL_SERVER_ERROR,
                         "Kh\u00f4ng t\u00ecm th\u1ea5y ng\u01b0\u1eddi d\u00f9ng demo."
@@ -158,13 +159,15 @@ public class QuotaService {
         metadata.put("blocked_reason", status.blockedReason());
         metadata.set("quota_status", objectMapper.valueToTree(status));
 
+        User user = userRepository.findById(userId).orElse(null);
+
         auditLogRepository.save(
-                userId,
+                user,
                 null,
                 "QUOTA_BLOCKED",
                 "app_user",
                 userId.toString(),
-                metadata.toString()
+                metadata
         );
     }
 }

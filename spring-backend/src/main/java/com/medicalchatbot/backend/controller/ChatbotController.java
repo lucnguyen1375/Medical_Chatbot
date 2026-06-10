@@ -1,13 +1,13 @@
 package com.medicalchatbot.backend.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.medicalchatbot.backend.dto.ChatMessagesResponse;
-import com.medicalchatbot.backend.dto.ChatRequest;
-import com.medicalchatbot.backend.dto.ChatResponse;
-import com.medicalchatbot.backend.dto.ChatSessionListResponse;
-import com.medicalchatbot.backend.dto.CostSummaryResponse;
-import com.medicalchatbot.backend.dto.ModelPricingListResponse;
-import com.medicalchatbot.backend.dto.QuotaStatusResponse;
+import com.medicalchatbot.backend.dto.response.ChatMessagesResponse;
+import com.medicalchatbot.backend.dto.request.ChatRequest;
+import com.medicalchatbot.backend.dto.response.ChatResponse;
+import com.medicalchatbot.backend.dto.response.ChatSessionListResponse;
+import com.medicalchatbot.backend.dto.response.CostSummaryResponse;
+import com.medicalchatbot.backend.dto.response.ModelPricingListResponse;
+import com.medicalchatbot.backend.dto.response.QuotaStatusResponse;
 import com.medicalchatbot.backend.service.ChatApplicationService;
 import com.medicalchatbot.backend.service.ChatbotServiceClient;
 import com.medicalchatbot.backend.service.CostManagementService;

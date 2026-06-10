@@ -2,44 +2,22 @@ package com.medicalchatbot.backend.repository;
 
 import java.util.UUID;
 
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.stereotype.Repository;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.medicalchatbot.backend.entity.AuditLog;
+import com.medicalchatbot.backend.entity.ChatSession;
+import com.medicalchatbot.backend.entity.User;
+import org.springframework.data.jpa.repository.JpaRepository;
 
-@Repository
-public class AuditLogRepository {
+public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
 
-    private final JdbcTemplate jdbcTemplate;
-
-    public AuditLogRepository(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
-    }
-
-    public void save(
-            UUID userId,
-            UUID sessionId,
+    default void save(
+            User user,
+            ChatSession session,
             String action,
             String resourceType,
             String resourceId,
-            String metadataJson
+            JsonNode metadataJson
     ) {
-        jdbcTemplate.update(
-                """
-                insert into audit_logs (
-                    user_id,
-                    session_id,
-                    action,
-                    resource_type,
-                    resource_id,
-                    metadata_json
-                )
-                values (?, ?, ?, ?, ?, coalesce(cast(? as jsonb), '{}'::jsonb))
-                """,
-                userId,
-                sessionId,
-                action,
-                resourceType,
-                resourceId,
-                metadataJson
-        );
+        save(new AuditLog(user, session, action, resourceType, resourceId, metadataJson));
     }
 }

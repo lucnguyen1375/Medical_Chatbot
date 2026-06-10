@@ -1,195 +1,190 @@
 package com.medicalchatbot.backend.repository;
 
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 
-import com.medicalchatbot.backend.dto.ChatContextMessage;
-import com.medicalchatbot.backend.dto.ChatMessageItem;
-import com.medicalchatbot.backend.dto.ChatSessionMemory;
-import com.medicalchatbot.backend.dto.ChatSessionSummary;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.stereotype.Repository;
+import com.medicalchatbot.backend.dto.request.ChatContextMessage;
+import com.medicalchatbot.backend.dto.response.ChatMessageItem;
+import com.medicalchatbot.backend.dto.response.ChatSessionMemory;
+import com.medicalchatbot.backend.dto.response.ChatSessionSummary;
+import com.medicalchatbot.backend.entity.ChatSession;
+import com.medicalchatbot.backend.entity.User;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
-@Repository
-public class ChatSessionRepository {
+public interface ChatSessionRepository extends JpaRepository<ChatSession, UUID> {
 
-    private final JdbcTemplate jdbcTemplate;
+    java.util.Optional<ChatSession> findByIdAndUser_Id(UUID id, UUID userId);
 
-    public ChatSessionRepository(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
+    boolean existsByIdAndUser_Id(UUID id, UUID userId);
+
+    default ChatSession create(User user, String title) {
+        return save(new ChatSession(user, title));
     }
 
-    public UUID create(UUID userId, String title) {
-        return jdbcTemplate.queryForObject(
-                "insert into chat_sessions (user_id, title) values (?, ?) returning id",
-                (rs, rowNum) -> rs.getObject("id", UUID.class),
-                userId,
-                title
-        );
+    default boolean existsForUser(UUID sessionId, UUID userId) {
+        return existsByIdAndUser_Id(sessionId, userId);
     }
 
-    public boolean existsForUser(UUID sessionId, UUID userId) {
-        Boolean exists = jdbcTemplate.queryForObject(
-                "select exists(select 1 from chat_sessions where id = ? and user_id = ?)",
-                Boolean.class,
-                sessionId,
-                userId
-        );
-        return Boolean.TRUE.equals(exists);
+    default ChatSessionMemory findMemoryForSession(UUID sessionId, UUID userId) {
+        return findByIdAndUser_Id(sessionId, userId)
+                .map(ChatSession::memory)
+                .orElseGet(ChatSessionMemory::empty);
     }
 
-    public void touch(UUID sessionId) {
-        jdbcTemplate.update(
-                "update chat_sessions set updated_at = now() where id = ?",
-                sessionId
-        );
+    default void updateMemory(ChatSession session, ChatSessionMemory memory) {
+        session.applyMemory(memory);
+        save(session);
     }
 
-    public ChatSessionMemory findMemoryForSession(UUID sessionId, UUID userId) {
-        return jdbcTemplate.query(
-                """
-                select
-                    active_patient_id,
-                    memory_summary,
-                    last_intent,
-                    last_tool_name,
-                    last_resource_type,
-                    last_resource_id
-                from chat_sessions
-                where id = ? and user_id = ?
-                """,
-                rs -> {
-                    if (!rs.next()) {
-                        return ChatSessionMemory.empty();
-                    }
-                    return new ChatSessionMemory(
-                            rs.getString("active_patient_id"),
-                            rs.getString("memory_summary"),
-                            rs.getString("last_intent"),
-                            rs.getString("last_tool_name"),
-                            rs.getString("last_resource_type"),
-                            rs.getString("last_resource_id")
-                    );
-                },
-                sessionId,
-                userId
-        );
+    @Query(
+            value = """
+                    select recent.role as "role", recent.content as "content"
+                    from (
+                        select
+                            m.role,
+                            m.content,
+                            m.created_at as "createdAt"
+                        from chat_messages m
+                        join chat_sessions s on s.id = m.session_id
+                        where s.id = :sessionId and s.user_id = :userId
+                        order by m.created_at desc
+                        limit :limit
+                    ) recent
+                    order by recent."createdAt" asc
+                    """,
+            nativeQuery = true
+    )
+    List<ChatContextMessageView> findRecentMessageViewsForContext(
+            @Param("sessionId") UUID sessionId,
+            @Param("userId") UUID userId,
+            @Param("limit") int limit
+    );
+
+    default List<ChatContextMessage> findRecentMessagesForContext(UUID sessionId, UUID userId, int limit) {
+        return findRecentMessageViewsForContext(sessionId, userId, limit)
+                .stream()
+                .map(message -> new ChatContextMessage(message.getRole(), message.getContent()))
+                .toList();
     }
 
-    public void updateMemory(UUID sessionId, ChatSessionMemory memory) {
-        jdbcTemplate.update(
-                """
-                update chat_sessions
-                set
-                    active_patient_id = ?,
-                    memory_summary = ?,
-                    last_intent = ?,
-                    last_tool_name = ?,
-                    last_resource_type = ?,
-                    last_resource_id = ?,
-                    updated_at = now()
-                where id = ?
-                """,
-                memory.activePatientId(),
-                memory.memorySummary(),
-                memory.lastIntent(),
-                memory.lastToolName(),
-                memory.lastResourceType(),
-                memory.lastResourceId(),
-                sessionId
-        );
-    }
-
-    public List<ChatContextMessage> findRecentMessagesForContext(UUID sessionId, UUID userId, int limit) {
-        return jdbcTemplate.query(
-                """
-                select role, content
-                from (
+    @Query(
+            value = """
                     select
-                        m.role,
-                        m.content,
-                        m.created_at
+                        s.id as "id",
+                        s.title as "title",
+                        s.created_at as "createdAt",
+                        s.updated_at as "updatedAt",
+                        s.active_patient_id as "activePatientId",
+                        coalesce(message_counts.message_count, 0) as "messageCount",
+                        left(coalesce(last_message.content, ''), 160) as "lastMessagePreview"
+                    from chat_sessions s
+                    left join lateral (
+                        select count(*)::int as message_count
+                        from chat_messages m
+                        where m.session_id = s.id
+                    ) message_counts on true
+                    left join lateral (
+                        select m.content
+                        from chat_messages m
+                        where m.session_id = s.id
+                        order by m.created_at desc
+                        limit 1
+                    ) last_message on true
+                    where s.user_id = :userId
+                    order by s.updated_at desc
+                    limit :limit
+                    """,
+            nativeQuery = true
+    )
+    List<ChatSessionSummaryView> findRecentSessionViewsForUser(
+            @Param("userId") UUID userId,
+            @Param("limit") int limit
+    );
+
+    default List<ChatSessionSummary> findRecentSessionsForUser(UUID userId, int limit) {
+        return findRecentSessionViewsForUser(userId, limit)
+                .stream()
+                .map(session -> new ChatSessionSummary(
+                        session.getId(),
+                        session.getTitle(),
+                        toOffsetDateTime(session.getCreatedAt()),
+                        toOffsetDateTime(session.getUpdatedAt()),
+                        session.getActivePatientId(),
+                        session.getMessageCount(),
+                        session.getLastMessagePreview()
+                ))
+                .toList();
+    }
+
+    @Query(
+            value = """
+                    select
+                        m.id as "id",
+                        m.role as "role",
+                        m.content as "content",
+                        m.created_at as "createdAt"
                     from chat_messages m
                     join chat_sessions s on s.id = m.session_id
-                    where s.id = ? and s.user_id = ?
-                    order by m.created_at desc
-                    limit ?
-                ) recent
-                order by created_at asc
-                """,
-                (rs, rowNum) -> new ChatContextMessage(
-                        rs.getString("role"),
-                        rs.getString("content")
-                ),
-                sessionId,
-                userId,
-                limit
-        );
+                    where s.id = :sessionId and s.user_id = :userId
+                    order by m.created_at asc
+                    """,
+            nativeQuery = true
+    )
+    List<ChatMessageItemView> findMessageItemViewsForSession(
+            @Param("sessionId") UUID sessionId,
+            @Param("userId") UUID userId
+    );
+
+    default List<ChatMessageItem> findMessagesForSession(UUID sessionId, UUID userId) {
+        return findMessageItemViewsForSession(sessionId, userId)
+                .stream()
+                .map(message -> new ChatMessageItem(
+                        message.getId(),
+                        message.getRole(),
+                        message.getContent(),
+                        toOffsetDateTime(message.getCreatedAt())
+                ))
+                .toList();
     }
 
-    public List<ChatSessionSummary> findRecentSessionsForUser(UUID userId, int limit) {
-        return jdbcTemplate.query(
-                """
-                select
-                    s.id,
-                    s.title,
-                    s.created_at,
-                    s.updated_at,
-                    s.active_patient_id,
-                    coalesce(message_counts.message_count, 0) as message_count,
-                    left(coalesce(last_message.content, ''), 160) as last_message_preview
-                from chat_sessions s
-                left join lateral (
-                    select count(*)::int as message_count
-                    from chat_messages m
-                    where m.session_id = s.id
-                ) message_counts on true
-                left join lateral (
-                    select m.content
-                    from chat_messages m
-                    where m.session_id = s.id
-                    order by m.created_at desc
-                    limit 1
-                ) last_message on true
-                where s.user_id = ?
-                order by s.updated_at desc
-                limit ?
-                """,
-                (rs, rowNum) -> new ChatSessionSummary(
-                        rs.getObject("id", UUID.class),
-                        rs.getString("title"),
-                        rs.getObject("created_at", java.time.OffsetDateTime.class),
-                        rs.getObject("updated_at", java.time.OffsetDateTime.class),
-                        rs.getString("active_patient_id"),
-                        rs.getInt("message_count"),
-                        rs.getString("last_message_preview")
-                ),
-                userId,
-                limit
-        );
+    private static OffsetDateTime toOffsetDateTime(Instant value) {
+        return value == null ? null : value.atOffset(ZoneOffset.UTC);
     }
 
-    public List<ChatMessageItem> findMessagesForSession(UUID sessionId, UUID userId) {
-        return jdbcTemplate.query(
-                """
-                select
-                    m.id,
-                    m.role,
-                    m.content,
-                    m.created_at
-                from chat_messages m
-                join chat_sessions s on s.id = m.session_id
-                where s.id = ? and s.user_id = ?
-                order by m.created_at asc
-                """,
-                (rs, rowNum) -> new ChatMessageItem(
-                        rs.getObject("id", UUID.class),
-                        rs.getString("role"),
-                        rs.getString("content"),
-                        rs.getObject("created_at", java.time.OffsetDateTime.class)
-                ),
-                sessionId,
-                userId
-        );
+    interface ChatContextMessageView {
+        String getRole();
+
+        String getContent();
+    }
+
+    interface ChatSessionSummaryView {
+        UUID getId();
+
+        String getTitle();
+
+        Instant getCreatedAt();
+
+        Instant getUpdatedAt();
+
+        String getActivePatientId();
+
+        int getMessageCount();
+
+        String getLastMessagePreview();
+    }
+
+    interface ChatMessageItemView {
+        UUID getId();
+
+        String getRole();
+
+        String getContent();
+
+        Instant getCreatedAt();
     }
 }

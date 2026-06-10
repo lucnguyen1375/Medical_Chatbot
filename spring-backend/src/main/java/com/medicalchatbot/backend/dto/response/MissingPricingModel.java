@@ -1,4 +1,4 @@
-package com.medicalchatbot.backend.dto;
+package com.medicalchatbot.backend.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 

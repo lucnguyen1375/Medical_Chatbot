@@ -1,15 +1,13 @@
-package com.medicalchatbot.backend.dto;
-
-import java.util.List;
+package com.medicalchatbot.backend.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-public record ConversationContext(
-        @JsonProperty("memory_summary")
-        String memorySummary,
-
+public record ChatSessionMemory(
         @JsonProperty("active_patient_id")
         String activePatientId,
+
+        @JsonProperty("memory_summary")
+        String memorySummary,
 
         @JsonProperty("last_intent")
         String lastIntent,
@@ -21,9 +19,9 @@ public record ConversationContext(
         String lastResourceType,
 
         @JsonProperty("last_resource_id")
-        String lastResourceId,
-
-        @JsonProperty("recent_messages")
-        List<ChatContextMessage> recentMessages
+        String lastResourceId
 ) {
+    public static ChatSessionMemory empty() {
+        return new ChatSessionMemory(null, null, null, null, null, null);
+    }
 }

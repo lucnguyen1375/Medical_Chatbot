@@ -5,10 +5,10 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.UUID;
 
-import com.medicalchatbot.backend.dto.CostSummaryResponse;
-import com.medicalchatbot.backend.dto.ModelPricingListResponse;
-import com.medicalchatbot.backend.repository.AppUserRepository;
+import com.medicalchatbot.backend.dto.response.CostSummaryResponse;
+import com.medicalchatbot.backend.dto.response.ModelPricingListResponse;
 import com.medicalchatbot.backend.repository.ModelPricingRepository;
+import com.medicalchatbot.backend.repository.UserRepository;
 import com.medicalchatbot.backend.repository.UsageLogRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -20,27 +20,27 @@ public class CostManagementService {
 
     private static final String DEMO_USERNAME = "demo_user";
 
-    private final AppUserRepository appUserRepository;
+    private final UserRepository userRepository;
     private final UsageLogRepository usageLogRepository;
     private final ModelPricingRepository modelPricingRepository;
     private final ZoneId costZone;
 
     @Autowired
     public CostManagementService(
-            AppUserRepository appUserRepository,
+            UserRepository userRepository,
             UsageLogRepository usageLogRepository,
             ModelPricingRepository modelPricingRepository
     ) {
-        this(appUserRepository, usageLogRepository, modelPricingRepository, ZoneId.systemDefault());
+        this(userRepository, usageLogRepository, modelPricingRepository, ZoneId.systemDefault());
     }
 
     CostManagementService(
-            AppUserRepository appUserRepository,
+            UserRepository userRepository,
             UsageLogRepository usageLogRepository,
             ModelPricingRepository modelPricingRepository,
             ZoneId costZone
     ) {
-        this.appUserRepository = appUserRepository;
+        this.userRepository = userRepository;
         this.usageLogRepository = usageLogRepository;
         this.modelPricingRepository = modelPricingRepository;
         this.costZone = costZone;
@@ -78,7 +78,7 @@ public class CostManagementService {
     }
 
     private UUID getDemoUserId() {
-        return appUserRepository.findIdByUsername(DEMO_USERNAME)
+        return userRepository.findIdByUsername(DEMO_USERNAME)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.INTERNAL_SERVER_ERROR,
                         "Kh\u00f4ng t\u00ecm th\u1ea5y ng\u01b0\u1eddi d\u00f9ng demo."

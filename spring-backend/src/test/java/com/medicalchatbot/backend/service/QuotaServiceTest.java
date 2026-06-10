@@ -15,12 +15,13 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.medicalchatbot.backend.dto.QuotaPolicyInfo;
-import com.medicalchatbot.backend.dto.QuotaUsageSummary;
+import com.medicalchatbot.backend.dto.response.QuotaPolicyInfo;
+import com.medicalchatbot.backend.dto.response.QuotaUsageSummary;
+import com.medicalchatbot.backend.entity.User;
 import com.medicalchatbot.backend.exception.QuotaExceededException;
-import com.medicalchatbot.backend.repository.AppUserRepository;
 import com.medicalchatbot.backend.repository.AuditLogRepository;
 import com.medicalchatbot.backend.repository.QuotaPolicyRepository;
+import com.medicalchatbot.backend.repository.UserRepository;
 import com.medicalchatbot.backend.repository.UsageLogRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -31,7 +32,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class QuotaServiceTest {
 
     @Mock
-    private AppUserRepository appUserRepository;
+    private UserRepository userRepository;
 
     @Mock
     private QuotaPolicyRepository quotaPolicyRepository;
@@ -47,7 +48,7 @@ class QuotaServiceTest {
         UUID userId = UUID.fromString("00000000-0000-0000-0000-000000000201");
         QuotaService service = newService();
 
-        when(appUserRepository.findIdByUsername("demo_user")).thenReturn(Optional.of(userId));
+        when(userRepository.findIdByUsername("demo_user")).thenReturn(Optional.of(userId));
         when(quotaPolicyRepository.findByUserId(userId)).thenReturn(Optional.of(new QuotaPolicyInfo(
                 "free_demo",
                 50,
@@ -98,6 +99,7 @@ class QuotaServiceTest {
                 0,
                 BigDecimal.ZERO
         ));
+        when(userRepository.findById(userId)).thenReturn(Optional.of(new User(userId)));
 
         QuotaExceededException exception = assertThrows(
                 QuotaExceededException.class,
@@ -107,12 +109,12 @@ class QuotaServiceTest {
         assertEquals(false, exception.quotaStatus().allowed());
         assertEquals(0, exception.quotaStatus().remainingRequests());
         verify(auditLogRepository).save(
-                eq(userId),
+                any(User.class),
                 isNull(),
                 eq("QUOTA_BLOCKED"),
                 eq("app_user"),
                 eq(userId.toString()),
-                any(String.class)
+                any()
         );
     }
 
@@ -137,6 +139,7 @@ class QuotaServiceTest {
                 50,
                 new BigDecimal("0.01")
         ));
+        when(userRepository.findById(userId)).thenReturn(Optional.of(new User(userId)));
 
         QuotaExceededException exception = assertThrows(
                 QuotaExceededException.class,
@@ -153,7 +156,7 @@ class QuotaServiceTest {
 
     private QuotaService newService() {
         return new QuotaService(
-                appUserRepository,
+                userRepository,
                 quotaPolicyRepository,
                 usageLogRepository,
                 auditLogRepository,

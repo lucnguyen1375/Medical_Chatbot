@@ -19,7 +19,7 @@ Frontend
   -> LLM Vietnamese answer generation
   -> Spring checks daily quota before calling AI
   -> Spring estimates AI cost from model pricing
-  -> Spring persists chat history, usage logs, and audit logs
+  -> Spring persists chat history, usage logs, and audit logs through JPA repositories
   -> Staff Demo Dashboard displays selected patient context, chat history, answer, and evidence
 ```
 
@@ -358,6 +358,60 @@ Verified:
 - `GET http://localhost:8081/api/model-pricing` returned active model prices.
 - `GET http://localhost:8081/api/usage/cost-summary?from=2026-06-01&to=2026-06-01` returned today's request, token, and cost totals.
 
+### 11. Spring JPA Flow Refactor
+
+Status: Done for current demo scope
+
+Completed:
+
+- Replaced Spring JDBC repository implementation with Spring Data JPA repositories for the app database.
+- Added entity mappings for:
+  - `User`
+  - `QuotaPolicy`
+  - `ChatSession`
+  - `ChatMessage`
+  - `UsageLog`
+  - `AuditLog`
+  - `ModelPricing`
+  - `CacheEntry`
+- Java entity `User` maps to the existing database table `app_users`; the database table was not renamed.
+- Kept Flyway as the schema owner and configured Hibernate with `ddl-auto: validate`.
+- Disabled Open Session In View with `spring.jpa.open-in-view=false`.
+- Kept complex reporting queries as JPA native projections for:
+  - chat session history previews
+  - quota usage summary
+  - cost totals
+  - cost by model
+  - cost by day
+  - missing model pricing
+- Updated Spring services to use `User` and `ChatSession` entities while keeping public REST API contracts unchanged.
+- Removed `AppUserRepository` and replaced it with `UserRepository`.
+
+Verified:
+
+- `.\mvnw.cmd test -q` with Java 21 after setting `JAVA_HOME` to `C:\Program Files\Java\jdk-21.0.11`.
+- Spring non-web startup connected to app PostgreSQL on port `5433`.
+- Flyway validated 5 migrations and reported schema version 5.
+- Hibernate EntityManagerFactory started successfully with `ddl-auto: validate`.
+
+Follow-up fix:
+
+- Fixed chat history native projection after the JPA refactor so PostgreSQL `timestamptz` values returned as `Instant` are converted back to `OffsetDateTime` DTO fields.
+- Verified `GET /api/chat/sessions?limit=3` returns HTTP 200.
+- Verified `GET /api/chat/sessions/{sessionId}/messages` returns HTTP 200.
+
+Follow-up refactor:
+
+- Split Spring DTO package into:
+  - `dto.request`
+  - `dto.response`
+- Moved chat input/context payload DTOs to `dto.request`.
+- Moved API response, summary, quota, pricing, and cost DTOs to `dto.response`.
+- Updated controller, service, repository, entity, exception, and test imports.
+- Verified `.\mvnw.cmd test -q` with Java 21.
+- Verified Spring JPA startup against app PostgreSQL still succeeds.
+- Restarted Spring backend and verified `GET /api/chat/sessions?limit=1` returns HTTP 200.
+
 ## Current Capabilities
 
 The system can currently answer questions about:
@@ -408,6 +462,7 @@ chi so do co cao khong
 - Session memory stores compact references and summaries; detailed structured data is re-read from FHIR when needed.
 - Quota V1 uses app database `quota_policies` plus daily aggregation from `usage_logs`; it does not maintain a separate counter table.
 - Cost V1 uses `model_pricing` plus `usage_logs.estimated_cost_usd`; it does not create a separate `cost_logs` table yet.
+- Spring app database persistence now follows JPA entity/repository flow; HAPI FHIR internal tables are still not mapped as entities.
 
 ## Next Recommended Milestones
 

@@ -1,7 +1,7 @@
 package com.medicalchatbot.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.medicalchatbot.backend.dto.ChatbotChatRequest;
+import com.medicalchatbot.backend.dto.request.ChatbotChatRequest;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;

@@ -1,4 +1,4 @@
-package com.medicalchatbot.backend.dto;
+package com.medicalchatbot.backend.dto.request;
 
 import java.util.UUID;
 

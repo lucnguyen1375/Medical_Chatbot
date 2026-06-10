@@ -1,6 +1,6 @@
 package com.medicalchatbot.backend.exception;
 
-import com.medicalchatbot.backend.dto.QuotaStatusResponse;
+import com.medicalchatbot.backend.dto.response.QuotaStatusResponse;
 
 public class QuotaExceededException extends RuntimeException {
 

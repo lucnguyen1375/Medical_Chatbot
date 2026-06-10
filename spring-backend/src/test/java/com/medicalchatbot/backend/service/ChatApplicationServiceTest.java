@@ -17,17 +17,19 @@ import java.util.List;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.medicalchatbot.backend.dto.ChatContextMessage;
-import com.medicalchatbot.backend.dto.ChatRequest;
-import com.medicalchatbot.backend.dto.ChatResponse;
-import com.medicalchatbot.backend.dto.ChatSessionMemory;
-import com.medicalchatbot.backend.dto.ChatbotChatRequest;
-import com.medicalchatbot.backend.dto.QuotaStatusResponse;
+import com.medicalchatbot.backend.dto.request.ChatContextMessage;
+import com.medicalchatbot.backend.dto.request.ChatRequest;
+import com.medicalchatbot.backend.dto.response.ChatResponse;
+import com.medicalchatbot.backend.dto.response.ChatSessionMemory;
+import com.medicalchatbot.backend.dto.request.ChatbotChatRequest;
+import com.medicalchatbot.backend.dto.response.QuotaStatusResponse;
+import com.medicalchatbot.backend.entity.ChatSession;
+import com.medicalchatbot.backend.entity.User;
 import com.medicalchatbot.backend.exception.QuotaExceededException;
-import com.medicalchatbot.backend.repository.AppUserRepository;
 import com.medicalchatbot.backend.repository.AuditLogRepository;
 import com.medicalchatbot.backend.repository.ChatMessageRepository;
 import com.medicalchatbot.backend.repository.ChatSessionRepository;
+import com.medicalchatbot.backend.repository.UserRepository;
 import com.medicalchatbot.backend.repository.UsageLogRepository;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
@@ -42,7 +44,7 @@ import org.springframework.web.server.ResponseStatusException;
 class ChatApplicationServiceTest {
 
     @Mock
-    private AppUserRepository appUserRepository;
+    private UserRepository userRepository;
 
     @Mock
     private ChatSessionRepository chatSessionRepository;
@@ -71,7 +73,7 @@ class ChatApplicationServiceTest {
         UUID sessionId = UUID.fromString("00000000-0000-0000-0000-000000000601");
         ChatApplicationService service = newService();
 
-        when(appUserRepository.findIdByUsername("demo_user")).thenReturn(Optional.of(userId));
+        when(userRepository.findByUsername("demo_user")).thenReturn(Optional.of(new User(userId)));
         when(chatSessionRepository.existsForUser(sessionId, userId)).thenReturn(false);
 
         ResponseStatusException exception = assertThrows(
@@ -87,6 +89,15 @@ class ChatApplicationServiceTest {
     void chatUsesSessionMemoryWhenRequestHasNoPatientId() throws Exception {
         UUID userId = UUID.fromString("00000000-0000-0000-0000-000000000201");
         UUID sessionId = UUID.fromString("00000000-0000-0000-0000-000000000601");
+        ChatSession session = new ChatSession(sessionId);
+        session.applyMemory(new ChatSessionMemory(
+                "demo-patient-001",
+                "Da xem huyet ap cua demo-patient-001.",
+                "observations",
+                "get_observations",
+                "Observation",
+                "obs-1"
+        ));
         ChatApplicationService service = newService();
         JsonNode response = new ObjectMapper().readTree("""
                 {
@@ -124,16 +135,9 @@ class ChatApplicationServiceTest {
                 }
                 """);
 
-        when(appUserRepository.findIdByUsername("demo_user")).thenReturn(Optional.of(userId));
+        when(userRepository.findByUsername("demo_user")).thenReturn(Optional.of(new User(userId)));
         when(chatSessionRepository.existsForUser(sessionId, userId)).thenReturn(true);
-        when(chatSessionRepository.findMemoryForSession(sessionId, userId)).thenReturn(new ChatSessionMemory(
-                "demo-patient-001",
-                "Da xem huyet ap cua demo-patient-001.",
-                "observations",
-                "get_observations",
-                "Observation",
-                "obs-1"
-        ));
+        when(chatSessionRepository.getReferenceById(sessionId)).thenReturn(session);
         when(chatSessionRepository.findRecentMessagesForContext(sessionId, userId, 6)).thenReturn(List.of(
                 new ChatContextMessage("user", "huyet ap cua benh nhan nay"),
                 new ChatContextMessage("assistant", "Huyet ap 150/92 mmHg")
@@ -157,7 +161,7 @@ class ChatApplicationServiceTest {
         assertEquals("demo-patient-001", result.patientId());
 
         ArgumentCaptor<ChatSessionMemory> memoryCaptor = ArgumentCaptor.forClass(ChatSessionMemory.class);
-        verify(chatSessionRepository).updateMemory(org.mockito.ArgumentMatchers.eq(sessionId), memoryCaptor.capture());
+        verify(chatSessionRepository).updateMemory(org.mockito.ArgumentMatchers.eq(session), memoryCaptor.capture());
         ChatSessionMemory savedMemory = memoryCaptor.getValue();
         assertEquals("demo-patient-001", savedMemory.activePatientId());
         assertEquals("medications", savedMemory.lastIntent());
@@ -169,6 +173,15 @@ class ChatApplicationServiceTest {
     void allPatientResponseDoesNotOverwriteActivePatientContext() throws Exception {
         UUID userId = UUID.fromString("00000000-0000-0000-0000-000000000201");
         UUID sessionId = UUID.fromString("00000000-0000-0000-0000-000000000602");
+        ChatSession session = new ChatSession(sessionId);
+        session.applyMemory(new ChatSessionMemory(
+                "demo-patient-001",
+                "Da xem huyet ap cua demo-patient-001.",
+                "observations",
+                "get_observations",
+                "Observation",
+                "obs-1"
+        ));
         ChatApplicationService service = newService();
         JsonNode response = new ObjectMapper().readTree("""
                 {
@@ -191,23 +204,16 @@ class ChatApplicationServiceTest {
                 }
                 """);
 
-        when(appUserRepository.findIdByUsername("demo_user")).thenReturn(Optional.of(userId));
+        when(userRepository.findByUsername("demo_user")).thenReturn(Optional.of(new User(userId)));
         when(chatSessionRepository.existsForUser(sessionId, userId)).thenReturn(true);
-        when(chatSessionRepository.findMemoryForSession(sessionId, userId)).thenReturn(new ChatSessionMemory(
-                "demo-patient-001",
-                "Da xem huyet ap cua demo-patient-001.",
-                "observations",
-                "get_observations",
-                "Observation",
-                "obs-1"
-        ));
+        when(chatSessionRepository.getReferenceById(sessionId)).thenReturn(session);
         when(chatSessionRepository.findRecentMessagesForContext(sessionId, userId, 6)).thenReturn(List.of());
         when(chatbotServiceClient.chat(any(ChatbotChatRequest.class))).thenReturn(response);
 
         service.chat(new ChatRequest(sessionId, null, "danh sach benh nhan"));
 
         ArgumentCaptor<ChatSessionMemory> memoryCaptor = ArgumentCaptor.forClass(ChatSessionMemory.class);
-        verify(chatSessionRepository).updateMemory(org.mockito.ArgumentMatchers.eq(sessionId), memoryCaptor.capture());
+        verify(chatSessionRepository).updateMemory(org.mockito.ArgumentMatchers.eq(session), memoryCaptor.capture());
         ChatSessionMemory savedMemory = memoryCaptor.getValue();
         assertEquals("demo-patient-001", savedMemory.activePatientId());
         assertEquals("Observation", savedMemory.lastResourceType());
@@ -236,7 +242,7 @@ class ChatApplicationServiceTest {
                 "Đã vượt quá hạn mức 1 lượt gọi AI/ngày."
         );
 
-        when(appUserRepository.findIdByUsername("demo_user")).thenReturn(Optional.of(userId));
+        when(userRepository.findByUsername("demo_user")).thenReturn(Optional.of(new User(userId)));
         doThrow(new QuotaExceededException(quotaStatus.blockedReason(), quotaStatus))
                 .when(quotaService)
                 .assertQuotaAvailable(userId);
@@ -254,7 +260,9 @@ class ChatApplicationServiceTest {
     @Test
     void chatSavesSpringEstimatedCostWhenUsageHasTokens() throws Exception {
         UUID userId = UUID.fromString("00000000-0000-0000-0000-000000000201");
+        User user = new User(userId);
         UUID sessionId = UUID.fromString("00000000-0000-0000-0000-000000000603");
+        ChatSession session = new ChatSession(sessionId);
         ChatApplicationService service = newService();
         JsonNode response = new ObjectMapper().readTree("""
                 {
@@ -273,16 +281,8 @@ class ChatApplicationServiceTest {
                 }
                 """);
 
-        when(appUserRepository.findIdByUsername("demo_user")).thenReturn(Optional.of(userId));
-        when(chatSessionRepository.create(eq(userId), any())).thenReturn(sessionId);
-        when(chatSessionRepository.findMemoryForSession(sessionId, userId)).thenReturn(new ChatSessionMemory(
-                null,
-                null,
-                null,
-                null,
-                null,
-                null
-        ));
+        when(userRepository.findByUsername("demo_user")).thenReturn(Optional.of(user));
+        when(chatSessionRepository.create(eq(user), any())).thenReturn(session);
         when(chatSessionRepository.findRecentMessagesForContext(sessionId, userId, 6)).thenReturn(List.of());
         when(chatbotServiceClient.chat(any(ChatbotChatRequest.class))).thenReturn(response);
         when(costEstimationService.estimateUsd(
@@ -296,8 +296,8 @@ class ChatApplicationServiceTest {
         service.chat(new ChatRequest(null, null, "danh sach benh nhan"));
 
         verify(usageLogRepository).save(
-                eq(userId),
-                eq(sessionId),
+                eq(user),
+                eq(session),
                 eq("openai"),
                 eq("gpt-4.1-mini"),
                 eq("chat"),
@@ -312,7 +312,7 @@ class ChatApplicationServiceTest {
 
     private ChatApplicationService newService() {
         return new ChatApplicationService(
-                appUserRepository,
+                userRepository,
                 chatSessionRepository,
                 chatMessageRepository,
                 usageLogRepository,

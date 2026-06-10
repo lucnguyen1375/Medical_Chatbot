@@ -3,33 +3,19 @@ package com.medicalchatbot.backend.repository;
 import java.util.UUID;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.medicalchatbot.backend.entity.ChatMessage;
+import com.medicalchatbot.backend.entity.ChatSession;
 import com.medicalchatbot.backend.enums.ChatMessageRole;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.stereotype.Repository;
+import org.springframework.data.jpa.repository.JpaRepository;
 
-@Repository
-public class ChatMessageRepository {
+public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> {
 
-    private final JdbcTemplate jdbcTemplate;
-    private final ChatSessionRepository chatSessionRepository;
-
-    public ChatMessageRepository(JdbcTemplate jdbcTemplate, ChatSessionRepository chatSessionRepository) {
-        this.jdbcTemplate = jdbcTemplate;
-        this.chatSessionRepository = chatSessionRepository;
+    default void save(ChatSession session, ChatMessageRole role, String content) {
+        save(session, role, content, null);
     }
 
-    public void save(UUID sessionId, ChatMessageRole role, String content) {
-        save(sessionId, role, content, null);
-    }
-
-    public void save(UUID sessionId, ChatMessageRole role, String content, JsonNode metadata) {
-        jdbcTemplate.update(
-                "insert into chat_messages (session_id, role, content, metadata_json) values (?, ?, ?, cast(? as jsonb))",
-                sessionId,
-                role.databaseValue(),
-                content,
-                metadata == null || metadata.isNull() || metadata.isMissingNode() ? "{}" : metadata.toString()
-        );
-        chatSessionRepository.touch(sessionId);
+    default void save(ChatSession session, ChatMessageRole role, String content, JsonNode metadata) {
+        session.touch();
+        save(new ChatMessage(session, role.databaseValue(), content, metadata));
     }
 }
